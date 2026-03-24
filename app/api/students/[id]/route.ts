@@ -22,6 +22,10 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   }
 }
 
+// Fields that are mirrored bidirectionally between the top-level student doc
+// and every admissionDetails entry so all three views stay in sync.
+const QUICK_SYNC_FIELDS = new Set(["stage", "remarks", "standing", "currentStage"]);
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
@@ -31,7 +35,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const body = await req.json();
     // Support raw MongoDB operators ($push, $pull, etc.) passed directly in the body
     const hasOperators = Object.keys(body).some((k) => k.startsWith("$"));
-    const update = hasOperators ? body : { $set: body };
+
+    let update: Record<string, unknown>;
+
+    if (hasOperators) {
+      update = body;
+    } else {
+      const setFields: Record<string, unknown> = { ...body };
+
+      // Direction A: admissionDetails inline edit → mirror to top-level student fields
+      // So that the students-list columns (stage/remarks/standing/currentStage) stay in sync.
+      if (Array.isArray(body.admissionDetails) && body.admissionDetails.length > 0) {
+        // Use the last non-closed entry as the primary source of truth
+        const primary =
+          [...body.admissionDetails].reverse().find((e: { closed?: boolean }) => !e.closed) ??
+          body.admissionDetails[body.admissionDetails.length - 1];
+        if (primary) {
+          if (primary.stage    !== undefined && primary.stage    !== "") setFields.stage        = primary.stage;
+          if (primary.remarks  !== undefined && primary.remarks  !== "") setFields.remarks      = primary.remarks;
+          if (primary.standing !== undefined && primary.standing !== "") setFields.standing     = primary.standing;
+          if (primary.pipeline !== undefined && primary.pipeline !== "") setFields.currentStage = primary.pipeline;
+        }
+      }
+
+      // Direction B: students-list quick-update → mirror to ALL admissionDetails entries
+      // Only when the patch is a "quick update" (touches only the 4 sync fields, no admissionDetails array).
+      const bodyKeys = Object.keys(body);
+      const isQuickSync =
+        !body.admissionDetails &&
+        bodyKeys.length > 0 &&
+        bodyKeys.every((k) => QUICK_SYNC_FIELDS.has(k));
+
+      if (isQuickSync) {
+        if (body.stage        !== undefined) setFields["admissionDetails.$[].stage"]    = body.stage;
+        if (body.remarks      !== undefined) setFields["admissionDetails.$[].remarks"]  = body.remarks;
+        if (body.standing     !== undefined) setFields["admissionDetails.$[].standing"] = body.standing;
+        if (body.currentStage !== undefined) setFields["admissionDetails.$[].pipeline"] = body.currentStage;
+      }
+
+      update = { $set: setFields };
+    }
+
     const student = await Student.findByIdAndUpdate(id, update, { new: true, runValidators: false })
       .populate("branch", "name location")
       .populate("counsellor", "name email")

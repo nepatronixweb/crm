@@ -2,7 +2,7 @@
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { canAccessModule, getRoleLabel, formatDateTime } from "@/lib/utils";
+import { hasPermission, getRoleLabel, formatDateTime } from "@/lib/utils";
 import {
   LayoutDashboard, Users, UserCheck, FileText, FolderOpen,
   GraduationCap, Plane, BarChart3, Settings, Building2,
@@ -244,8 +244,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setUnreadCount((c) => { const v = Math.max(0, c - 1); prevUnreadRef.current = v; return v; });
   };
 
+  const userPermissions = (session?.user?.permissions ?? []) as string[];
   const visibleNav = navItems.filter((item) =>
-    item.module === "dashboard" || canAccessModule(role, item.module)
+    item.module === "dashboard" || hasPermission(userPermissions, item.module, role)
   );
 
   return (
@@ -369,7 +370,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="flex items-center gap-1">
           {/* Chat Icon */}
-          {canAccessModule(role, "chat") && (
+          {hasPermission(userPermissions, "chat", role) && (
             <Link href="/chat" className="relative p-2 rounded-md text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors">
               <MessageCircle size={18} />
               {chatUnreadCount > 0 && (

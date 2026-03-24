@@ -9,6 +9,7 @@ declare module "next-auth" {
       role: string;
       branch: string;
       branchName: string;
+      permissions: string[];
     };
   }
 }

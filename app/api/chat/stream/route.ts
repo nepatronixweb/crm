@@ -24,10 +24,19 @@ export async function GET(req: NextRequest) {
         } catch { /* client disconnected */ }
       };
 
-      // Initial: send total unread count across all conversations
-      try {
+      // Cache conversation IDs — refreshed every 60s to pick up new convs
+      let convIds: unknown[] = [];
+      let lastConvRefresh = 0;
+
+      const refreshConvIds = async () => {
         const convs = await Conversation.find({ participants: userId }).select("_id").lean();
-        const convIds = convs.map((c) => c._id);
+        convIds = convs.map((c) => c._id);
+        lastConvRefresh = Date.now();
+      };
+
+      // Initial: load convIds + unread count
+      try {
+        await refreshConvIds();
         const unread = await Message.countDocuments({
           conversation: { $in: convIds },
           sender: { $ne: userId },
@@ -38,30 +47,30 @@ export async function GET(req: NextRequest) {
         send({ type: "chat_init", unreadCount: 0 });
       }
 
-      // Poll every 3 seconds for new messages
+      // Poll every 8 seconds — reuse cached convIds (refresh every 60s)
       const interval = setInterval(async () => {
         try {
+          if (Date.now() - lastConvRefresh > 60_000) await refreshConvIds();
+
           const since = lastCheck;
           lastCheck = new Date();
 
-          const convs = await Conversation.find({ participants: userId }).select("_id").lean();
-          const convIds = convs.map((c) => c._id);
-
-          const newMessages = await Message.find({
-            conversation: { $in: convIds },
-            sender: { $ne: userId },
-            createdAt: { $gt: since },
-          })
-            .populate("sender", "name email role")
-            .sort({ createdAt: -1 })
-            .limit(10)
-            .lean();
-
-          const unread = await Message.countDocuments({
-            conversation: { $in: convIds },
-            sender: { $ne: userId },
-            readBy: { $ne: userId },
-          });
+          const [newMessages, unread] = await Promise.all([
+            Message.find({
+              conversation: { $in: convIds },
+              sender: { $ne: userId },
+              createdAt: { $gt: since },
+            })
+              .populate("sender", "name email role")
+              .sort({ createdAt: -1 })
+              .limit(10)
+              .lean(),
+            Message.countDocuments({
+              conversation: { $in: convIds },
+              sender: { $ne: userId },
+              readBy: { $ne: userId },
+            }),
+          ]);
 
           if (newMessages.length > 0) {
             send({ type: "chat_new", messages: newMessages, unreadCount: unread });
@@ -71,7 +80,7 @@ export async function GET(req: NextRequest) {
         } catch {
           send({ type: "chat_heartbeat", unreadCount: 0 });
         }
-      }, 3000);
+      }, 8000);
 
       req.signal.addEventListener("abort", () => {
         clearInterval(interval);

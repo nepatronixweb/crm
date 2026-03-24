@@ -4,12 +4,11 @@ import { useSession } from "next-auth/react";
 import {
   Users, UserCheck, FileText, TrendingUp,
   ChevronRight, Activity, Target, ArrowUp,
-  FolderOpen, LayoutDashboard, Bell,
-  Clock, CheckCircle2, PlaneTakeoff, Award, XCircle, BadgeCheck, FilePlus2,
+  Bell, Clock, CheckCircle2, PlaneTakeoff, Award, XCircle, BadgeCheck, FilePlus2,
   SlidersHorizontal, Check, Calendar,
-  GraduationCap, Send, ShieldCheck, FileCheck, FileInput, MessageSquare,
+  GraduationCap, Send, ShieldCheck, FileInput, MessageSquare,
 } from "lucide-react";
-import { formatDateTime, getStatusColor, canAccessModule } from "@/lib/utils";
+import { formatDateTime, getStatusColor, hasPermission } from "@/lib/utils";
 import { IStudent, UserRole } from "@/types";
 import Link from "next/link";
 import { useBranding } from "@/app/branding-context";
@@ -155,6 +154,7 @@ export default function DashboardPage() {
   const isFrontDesk = session?.user?.role === "front_desk";
   const isAdmissionTeam = session?.user?.role === "admission_team";
   const role = (session?.user?.role ?? "") as UserRole;
+  const userPermissions = (session?.user?.permissions ?? []) as string[];
 
   // Counsellor: assigned leads
   const [assignedLeads, setAssignedLeads] = useState<IAssignedLead[]>([]);
@@ -184,6 +184,7 @@ export default function DashboardPage() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationMsg, setCelebrationMsg] = useState({ title: "", sub: "" });
   const celebrationShownRef = useRef(false);
+  const hasAnalyticsRef = useRef(false);
 
   // Close filter dropdown on outside click
   useEffect(() => {
@@ -209,11 +210,14 @@ export default function DashboardPage() {
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       const url = `/api/analytics${params.toString() ? `?${params}` : ""}`;
-      if (data) setRefetching(true); else setLoading(true);
+      const isReload = hasAnalyticsRef.current;
+      const loadTimer = setTimeout(() => {
+        if (isReload) setRefetching(true); else setLoading(true);
+      }, 0);
       fetch(url)
         .then((r) => r.json())
-        .then((d) => { setData(d); setLoading(false); setRefetching(false); })
-        .catch(() => { setLoading(false); setRefetching(false); });
+        .then((d) => { hasAnalyticsRef.current = true; setData(d); setLoading(false); setRefetching(false); })
+        .catch(() => { clearTimeout(loadTimer); setLoading(false); setRefetching(false); });
       // Also fetch recent notifications for admin
       fetch("/api/notifications?limit=5")
         .then((r) => r.json())
@@ -221,28 +225,28 @@ export default function DashboardPage() {
         .catch(() => {});
     } else if (isCounsellor) {
       Promise.all([
-        fetch("/api/leads").then((r) => r.json()).catch(() => []),
-        fetch("/api/students").then((r) => r.json()).catch(() => []),
+        fetch("/api/leads?page=1&limit=50").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/students?page=1&limit=50").then((r) => r.json()).catch(() => ({})),
         fetch("/api/notifications?limit=6").then((r) => r.json()).catch(() => ({ notifications: [] })),
       ])
-        .then(([leads, students, notifications]) => {
-          setAssignedLeads(Array.isArray(leads) ? leads : []);
-          setCounsellorStudents(Array.isArray(students) ? students : []);
+        .then(([leadsData, studentsData, notifications]) => {
+          setAssignedLeads(Array.isArray(leadsData) ? leadsData : (leadsData?.leads ?? []));
+          setCounsellorStudents(Array.isArray(studentsData) ? studentsData : (studentsData?.students ?? []));
           setNotifs(notifications.notifications ?? []);
           setLoading(false);
         })
         .catch(() => setLoading(false));
     } else if (isFrontDesk) {
       Promise.all([
-        fetch("/api/leads").then((r) => r.json()),
-        fetch("/api/students").then((r) => r.json()),
+        fetch("/api/leads?page=1&limit=500").then((r) => r.json()),
+        fetch("/api/students?page=1&limit=500").then((r) => r.json()),
         fetch("/api/notifications?limit=5").then((r) => r.json()).catch(() => ({ notifications: [] })),
       ])
-        .then(([leads, students, notifications]) => {
-          const leadsArr = Array.isArray(leads) ? leads : [];
-          const studentsArr = Array.isArray(students) ? students : [];
+        .then(([leadsData, studentsData, notifications]) => {
+          const leadsArr = Array.isArray(leadsData) ? leadsData : (leadsData?.leads ?? []);
+          const studentsArr = Array.isArray(studentsData) ? studentsData : (studentsData?.students ?? []);
           setFdStats({
-            totalLeads: leadsArr.length,
+            totalLeads: leadsData?.total ?? leadsArr.length,
             convertedToStudent: leadsArr.filter((l: { convertedToStudent?: boolean }) => l.convertedToStudent).length,
             enrolledStudents: studentsArr.filter((s: { enrolled?: boolean }) => s.enrolled).length,
           });
@@ -267,25 +271,25 @@ export default function DashboardPage() {
   }, [isAdmin, isCounsellor, isFrontDesk, isAdmissionTeam, filterPeriod, filterDateFrom, filterDateTo]);
 
   // Trigger celebration when unread assignment notifications arrive
-  const handleNotifications = useCallback((notifsArr: INotif[]) => {
-    if (celebrationShownRef.current) return;
-    const unreadAssignments = notifsArr.filter((n) => !n.read && n.type === "lead_assigned");
-    if (unreadAssignments.length > 0) {
-      celebrationShownRef.current = true;
-      const count = unreadAssignments.length;
-      setCelebrationMsg({
-        title: "Hurray! 🎊",
-        sub: count === 1
-          ? "You have been assigned a new task!"
-          : `You have been assigned ${count} new tasks!`,
-      });
-      setShowCelebration(true);
-    }
-  }, []);
-
   useEffect(() => {
-    if (notifs.length > 0) handleNotifications(notifs);
-  }, [notifs, handleNotifications]);
+    if (notifs.length === 0) return;
+    const timer = setTimeout(() => {
+      if (celebrationShownRef.current) return;
+      const unreadAssignments = notifs.filter((n) => !n.read && n.type === "lead_assigned");
+      if (unreadAssignments.length > 0) {
+        celebrationShownRef.current = true;
+        const count = unreadAssignments.length;
+        setCelebrationMsg({
+          title: "Hurray! 🎊",
+          sub: count === 1
+            ? "You have been assigned a new task!"
+            : `You have been assigned ${count} new tasks!`,
+        });
+        setShowCelebration(true);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [notifs]);
 
   const dismissCelebration = useCallback(() => {
     setShowCelebration(false);
@@ -1260,7 +1264,7 @@ export default function DashboardPage() {
               {[
                 { label: "Leads", href: "/leads", module: "leads", icon: Users, desc: "View and manage your assigned leads" },
                 { label: "Students", href: "/students", module: "students", icon: UserCheck, desc: "Track your student progress" },
-              ].filter((item) => canAccessModule(role, item.module)).map((item) => {
+              ].filter((item) => hasPermission(userPermissions, item.module, role)).map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link

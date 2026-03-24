@@ -7,7 +7,7 @@ import {
   Lock, Eye, EyeOff, CheckCircle2, AlertCircle,
   RotateCcw, UserCog, ChevronDown,
 } from "lucide-react";
-import { formatDate, getRoleBadgeColor, getRoleLabel } from "@/lib/utils";
+import { formatDate, getRoleBadgeColor, getRoleLabel, ALL_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS } from "@/lib/utils";
 import { useBranding } from "@/app/branding-context";
 import { UserRole } from "@/types";
 
@@ -23,6 +23,7 @@ interface User {
   currentCount?: number;
   isActive: boolean;
   createdAt: string;
+  permissions: string[];
 }
 
 const ROLES: UserRole[] = [
@@ -33,6 +34,7 @@ const ROLES: UserRole[] = [
 const emptyForm = {
   name: "", email: "", password: "", role: "counsellor" as UserRole,
   branch: "", phone: "", dateOfBirth: "", target: "0",
+  permissions: [...ROLE_DEFAULT_PERMISSIONS["counsellor"]] as string[],
 };
 
 /* ─── Role icon color ─── */
@@ -162,6 +164,9 @@ export default function UsersPage() {
       phone: u.phone || "",
       dateOfBirth: u.dateOfBirth || "",
       target: String(u.target || 0),
+      permissions: u.permissions?.length
+        ? [...u.permissions]
+        : [...(ROLE_DEFAULT_PERMISSIONS[u.role] ?? [])] as string[],
     });
     setFormError("");
     setFormSuccess("");
@@ -526,7 +531,14 @@ export default function UsersPage() {
                   <div className="relative">
                     <select
                       required value={form.role}
-                      onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
+                      onChange={(e) => {
+                        const newRole = e.target.value as UserRole;
+                        setForm({
+                          ...form,
+                          role: newRole,
+                          permissions: [...(ROLE_DEFAULT_PERMISSIONS[newRole] ?? [])] as string[],
+                        });
+                      }}
                       className="appearance-none w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all bg-white cursor-pointer"
                     >
                       {ROLES.map((r) => <option key={r} value={r}>{getRoleLabel(r)}</option>)}
@@ -550,6 +562,79 @@ export default function UsersPage() {
                     <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
+              </div>
+
+              {/* Module Permissions */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+                      <Shield size={13} className="text-gray-400" /> Module Permissions
+                    </p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Role defaults pre-filled — customise freely.</p>
+                  </div>
+                  {form.role !== "super_admin" && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, permissions: ALL_PERMISSIONS.map((p) => p.key) })}
+                        className="text-[11px] font-medium text-blue-600 hover:underline"
+                      >
+                        Select all
+                      </button>
+                      <span className="text-gray-300 text-xs">|</span>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, permissions: [] })}
+                        className="text-[11px] font-medium text-gray-500 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {form.role === "super_admin" ? (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+                    <Shield size={16} className="text-red-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-red-700">Full System Access</p>
+                      <p className="text-[11px] text-red-500 mt-0.5">Super Admins bypass all permission checks automatically.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {ALL_PERMISSIONS.map((perm) => {
+                      const checked = form.permissions.includes(perm.key);
+                      return (
+                        <label
+                          key={perm.key}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all select-none ${
+                            checked
+                              ? "bg-blue-50 border-blue-300"
+                              : "bg-gray-50 border-gray-200 hover:border-gray-300"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const next = checked
+                                ? form.permissions.filter((p) => p !== perm.key)
+                                : [...form.permissions, perm.key];
+                              setForm({ ...form, permissions: next });
+                            }}
+                            className="mt-0.5 accent-blue-600 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 leading-tight">{perm.label}</p>
+                            <p className="text-[10px] text-gray-500 leading-tight mt-0.5">{perm.description}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Target — only for counsellor */}

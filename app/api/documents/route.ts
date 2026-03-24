@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
     const student = searchParams.get("student");
     const lead = searchParams.get("lead");
     const country = searchParams.get("country");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {};
@@ -22,12 +24,18 @@ export async function GET(req: NextRequest) {
     if (lead) filter.lead = lead;
     if (country) filter.country = country;
 
-    const documents = await StudentDocument.find(filter)
-      .populate("uploadedBy", "name")
-      .populate("student", "name phone")
-      .sort({ createdAt: -1 });
+    const [documents, total] = await Promise.all([
+      StudentDocument.find(filter)
+        .populate("uploadedBy", "name")
+        .populate("student", "name phone")
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      StudentDocument.countDocuments(filter),
+    ]);
 
-    return NextResponse.json({ documents });
+    return NextResponse.json({ documents, total, page, pages: Math.ceil(total / limit) });
   } catch {
     return NextResponse.json({ error: "Failed to fetch documents" }, { status: 500 });
   }

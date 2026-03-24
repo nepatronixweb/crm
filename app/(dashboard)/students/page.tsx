@@ -21,7 +21,25 @@ const SOURCES = [
 const FIELD = "w-full px-3 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors";
 const LABEL = "block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wide";
 
-const STAGES = ["counsellor", "application", "admission", "visa", "completed", "rejected"];
+const DOT_TO_BADGE: Record<string, string> = {
+  "bg-amber-400": "bg-amber-100 text-amber-800",
+  "bg-blue-400": "bg-blue-100 text-blue-800",
+  "bg-purple-400": "bg-purple-100 text-purple-800",
+  "bg-emerald-400": "bg-emerald-100 text-emerald-800",
+  "bg-teal-400": "bg-teal-100 text-teal-800",
+  "bg-gray-400": "bg-gray-100 text-gray-800",
+  "bg-red-400": "bg-red-100 text-red-800",
+  "bg-green-400": "bg-green-100 text-green-800",
+  "bg-indigo-400": "bg-indigo-100 text-indigo-800",
+  "bg-pink-400": "bg-pink-100 text-pink-800",
+  "bg-orange-400": "bg-orange-100 text-orange-800",
+  "bg-sky-400": "bg-sky-100 text-sky-800",
+  "bg-violet-400": "bg-violet-100 text-violet-800",
+  "bg-cyan-400": "bg-cyan-100 text-cyan-800",
+  "bg-rose-400": "bg-rose-100 text-rose-800",
+  "bg-yellow-400": "bg-yellow-100 text-yellow-800",
+  "bg-lime-400": "bg-lime-100 text-lime-800",
+};
 
 export default function StudentsPage() {
   const { data: session } = useSession();
@@ -40,11 +58,15 @@ export default function StudentsPage() {
   const [appLeadStages, setAppLeadStages] = useState(LEAD_STAGES);
   const [appStageGroups, setAppStageGroups] = useState(LEAD_STAGE_GROUPS);
   const [appRemarkOptions, setAppRemarkOptions] = useState<string[]>([]);
+  const [appStandings, setAppStandings] = useState<string[]>(["warm", "heated", "cold", "missed"]);
   const [showModal, setShowModal] = useState(false);
   const [branches, setBranches] = useState<{ _id: string; name: string }[]>([]);
   const [counsellors, setCounsellors] = useState<{ _id: string; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalStudents, setTotalStudents] = useState(0);
 
   const defaultForm = {
     name: "", phone: "", email: "", dateOfBirth: "",
@@ -55,20 +77,32 @@ export default function StudentsPage() {
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const fetchStudents = async () => {
+  const fetchStudents = async (page = 1) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (filterStage) params.set("stage", filterStage);
+    if (filterSource) params.set("source", filterSource);
+    if (filterCounsellor) params.set("counsellor", filterCounsellor);
+    if (filterLeadStage) params.set("crmStage", filterLeadStage);
     const role = session?.user?.role ?? "";
     if (role === "admission_team" || role === "visa_team") params.set("enrolled", "true");
+    params.set("page", page.toString());
+    params.set("limit", "50");
     const res = await fetch(`/api/students?${params}`);
     const data = await res.json();
-    setStudents(Array.isArray(data) ? data : []);
+    if (data && data.students) {
+      setStudents(data.students);
+      setTotalPages(data.pages ?? 1);
+      setTotalStudents(data.total ?? 0);
+      setCurrentPage(page);
+    } else {
+      setStudents(Array.isArray(data) ? data : []);
+    }
     setLoading(false);
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchStudents(); }, [filterStage, session?.user?.role]);
+  useEffect(() => { fetchStudents(1); }, [filterStage, filterSource, filterCounsellor, filterLeadStage, session?.user?.role]);
 
   useEffect(() => {
     fetch("/api/branches").then((r) => r.json()).then((br) => setBranches(Array.isArray(br) ? br : []));
@@ -95,6 +129,9 @@ export default function StudentsPage() {
       }
       if (Array.isArray(d?.remarkOptions) && d.remarkOptions.length > 0) {
         setAppRemarkOptions(d.remarkOptions);
+      }
+      if (Array.isArray(d?.leadStandings) && d.leadStandings.length > 0) {
+        setAppStandings(d.leadStandings);
       }
       // Collect all universities from all countries (deduplicated)
       if (Array.isArray(d?.countries)) {
@@ -303,7 +340,7 @@ export default function StudentsPage() {
       const data = await res.json();
       if (res.ok) {
         setShowModal(false);
-        fetchStudents();
+        fetchStudents(1);
       } else {
         setSubmitError(data?.error || "Failed to add student.");
       }
@@ -357,6 +394,7 @@ export default function StudentsPage() {
   };
 
   const filtered = students.filter((s) => {
+    // Stage, source, counsellor, crmStage handled server-side; keep text + complex client filters here
     const q = search.toLowerCase();
     const counsellorName = (s.counsellor as unknown as { name: string } | undefined)?.name ?? "";
     const destinationMatches = s.countries?.some((c) =>
@@ -390,20 +428,14 @@ export default function StudentsPage() {
       admissionMatches ||
       legacyDestination.includes(q) ||
       legacyIntake.includes(q);
-    const matchesStage = !filterStage || s.currentStage === filterStage;
-    const matchesSource = !filterSource || s.source === filterSource;
     const matchesService = !filterService || (s as unknown as { interestedService?: string }).interestedService === filterService;
-    const matchesCounsellor = !filterCounsellor || (s.counsellor as unknown as { _id: string } | undefined)?._id === filterCounsellor;
-    const matchesLeadStage = !filterLeadStage || (s as unknown as { stage?: string }).stage === filterLeadStage;
-    // Intake: match against admissionDetails courses intakeQuarter
     const matchesIntake = !filterIntake || s.admissionDetails?.some((ad) =>
       ad.courses?.some((c) => c.intakeQuarter === filterIntake)
     ) || false;
-    // University: match against admissionDetails universityName
     const matchesUniversity = !filterUniversity || s.admissionDetails?.some((ad) =>
       ad.universityName === filterUniversity
     ) || false;
-    return matchesSearch && matchesStage && matchesSource && matchesService && matchesCounsellor && matchesLeadStage && matchesIntake && matchesUniversity;
+    return matchesSearch && matchesService && matchesIntake && matchesUniversity;
   });
 
   const activeFilterCount = [filterStage, filterSource, filterService, filterCounsellor, filterLeadStage, filterIntake, filterUniversity].filter(Boolean).length;
@@ -487,13 +519,13 @@ export default function StudentsPage() {
 
       {/* Stage Pipeline */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-        {STAGES.map((stage) => {
-          const count = students.filter((s) => s.currentStage === stage).length;
-          const isActive = filterStage === stage;
+        {appStageGroups.map((group) => {
+          const count = students.filter((s) => s.currentStage?.toLowerCase() === group.label.toLowerCase()).length;
+          const isActive = filterStage.toLowerCase() === group.label.toLowerCase();
           return (
             <button
-              key={stage}
-              onClick={() => setFilterStage(isActive ? "" : stage)}
+              key={group.label}
+              onClick={() => setFilterStage(isActive ? "" : group.label)}
               className={`p-3.5 rounded-lg border text-center transition-colors ${
                 isActive
                   ? "bg-gray-900 border-gray-900 text-white"
@@ -502,7 +534,7 @@ export default function StudentsPage() {
             >
               <p className={`text-xl font-bold ${isActive ? "text-white" : "text-gray-900"}`}>{count}</p>
               <p className={`text-xs mt-0.5 capitalize font-medium ${isActive ? "text-gray-300" : "text-gray-500"}`}>
-                {stage}
+                {group.label}
               </p>
             </button>
           );
@@ -519,7 +551,7 @@ export default function StudentsPage() {
             <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)}
               className="w-full pt-7 pb-2 px-3 bg-transparent text-sm text-gray-700 focus:outline-none focus:bg-gray-50 cursor-pointer appearance-none pr-8">
               <option value="">View All Stage</option>
-              {STAGES.map((s) => <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+              {appStageGroups.map((g) => <option key={g.label} value={g.label}>{g.label}</option>)}
             </select>
             <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
@@ -826,13 +858,19 @@ export default function StudentsPage() {
                       {/* PIPELINE (currentStage) column */}
                       <td className="px-2.5 py-2 min-w-32">
                         <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const sg = appStageGroups.find(g => g.label.toLowerCase() === student.currentStage?.toLowerCase());
+                            const badgeCls = sg ? (DOT_TO_BADGE[sg.dot] ?? "bg-gray-100 text-gray-800") : getStatusColor(student.currentStage);
+                            return (
                           <button
                             onClick={(e) => canUpdateStage && openPipelinePortal(e, student._id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${getStatusColor(student.currentStage)} ${canUpdateStage ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${badgeCls} ${canUpdateStage ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
                           >
                             <span className="capitalize max-w-24 truncate">{student.currentStage}</span>
                             {canUpdateStage && <ChevronDown size={11} className={`shrink-0 transition-transform ${stageDropdownId === student._id ? "rotate-180" : ""}`} />}
                           </button>
+                            );
+                          })()}
                           {/* Dropdown rendered as fixed portal – see bottom of component */}
                         </div>
                       </td>
@@ -891,13 +929,32 @@ export default function StudentsPage() {
           </table>
         </div>
 
-        {/* Table footer */}
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+        {/* Table footer + pagination */}
+        {!loading && (filtered.length > 0 || totalPages > 1) && (
+          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between gap-4 flex-wrap">
             <p className="text-xs text-gray-500">
-              Showing <span className="font-semibold text-gray-700">{filtered.length}</span> of{" "}
-              <span className="font-semibold text-gray-700">{students.length}</span> students
+              Showing <span className="font-semibold text-gray-700">{filtered.length}</span> on page {currentPage}
+              {totalStudents > 0 && <> of <span className="font-semibold text-gray-700">{totalStudents}</span> total students</>}
             </p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fetchStudents(currentPage - 1)}
+                  disabled={currentPage <= 1 || loading}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 tabular-nums">{currentPage} / {totalPages}</span>
+                <button
+                  onClick={() => fetchStudents(currentPage + 1)}
+                  disabled={currentPage >= totalPages || loading}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1141,14 +1198,17 @@ export default function StudentsPage() {
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.12em]">Select Pipeline</span>
             </div>
             <div className="py-1.5">
-              {STAGES.map((s) => {
-                const isActive = dropStudent.currentStage === s;
+              {appStageGroups.map((g) => {
+                const isActive = dropStudent.currentStage?.toLowerCase() === g.label.toLowerCase();
                 return (
-                  <button key={s} onClick={() => quickUpdateStage(stageDropdownId, s)}
+                  <button key={g.label} onClick={() => quickUpdateStage(stageDropdownId, g.label)}
                     className={`w-full text-left px-4 py-2.5 text-xs font-medium capitalize transition-colors flex items-center justify-between ${
                       isActive ? "bg-gray-50 text-gray-900 font-semibold" : "text-gray-600 hover:bg-gray-50"
                     }`}>
-                    {s}
+                    <span className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${g.dot}`} />
+                      {g.label}
+                    </span>
                     {isActive && <svg width="8" height="6" viewBox="0 0 8 6" fill="none" className="shrink-0"><path d="M1 3L3 5L7 1" stroke="#111" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </button>
                 );
@@ -1164,12 +1224,16 @@ export default function StudentsPage() {
         const dropStudent = students.find((s) => s._id === standingDropdownId);
         if (!dropStudent) return null;
         const currentStanding = (dropStudent as unknown as { standing?: string }).standing || "";
-        const STANDING_OPTIONS = [
-          { value: "warm", label: "Warm", color: "bg-yellow-50 text-yellow-700" },
-          { value: "heated", label: "Heated", color: "bg-red-50 text-red-700" },
-          { value: "cold", label: "Cold", color: "bg-blue-50 text-blue-700" },
-          { value: "missed", label: "Missed", color: "bg-gray-100 text-gray-700" },
-        ];
+        const standingColors: Record<string, string> = {
+          hot: "bg-red-50 text-red-700", warm: "bg-yellow-50 text-yellow-700",
+          heated: "bg-orange-50 text-orange-700", cold: "bg-blue-50 text-blue-700",
+          missed: "bg-gray-100 text-gray-700", out_of_contact: "bg-gray-100 text-gray-500",
+        };
+        const STANDING_OPTIONS = appStandings.map(s => ({
+          value: s,
+          label: s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+          color: standingColors[s] ?? "bg-gray-100 text-gray-600",
+        }));
         return createPortal(
           <div
             ref={standingPanelRef}

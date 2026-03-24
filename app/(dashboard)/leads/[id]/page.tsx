@@ -68,9 +68,10 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       const sRes = await fetch(`/api/students?leadId=${id}`);
       if (sRes.ok) {
         const sData = await sRes.json();
-        if (Array.isArray(sData) && sData.length > 0) {
-          setStudentId(sData[0]._id);
-          setEnrolled(!!sData[0].enrolled);
+        const sArr = Array.isArray(sData) ? sData : (Array.isArray(sData?.students) ? sData.students : []);
+        if (sArr.length > 0) {
+          setStudentId(sArr[0]._id);
+          setEnrolled(!!sArr[0].enrolled);
         }
       }
     }

@@ -147,5 +147,13 @@ LeadSchema.index({ status: 1 });
 LeadSchema.index({ convertedToStudent: 1 });
 LeadSchema.index({ updatedAt: 1 }); // for cron stale-lead queries
 LeadSchema.index({ createdAt: -1 });
+// Additional indexes for server-side filtering
+LeadSchema.index({ source: 1 });
+LeadSchema.index({ interestedCountry: 1 });
+LeadSchema.index({ interestedService: 1 });
+LeadSchema.index({ stage: 1 });
+LeadSchema.index({ academicYear: 1 });
+LeadSchema.index({ applyLevel: 1 });
+LeadSchema.index({ branch: 1, createdAt: -1 }); // multi-tenant paginated list
 
 export default mongoose.models.Lead || mongoose.model<ILeadDocument>("Lead", LeadSchema);

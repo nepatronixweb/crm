@@ -31,10 +31,7 @@ const BALLOON_COLORS = [
 ];
 
 export default function CelebrationOverlay({ message, subMessage, onDismiss }: CelebrationOverlayProps) {
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
+  const [particles] = useState<Particle[]>(() => {
     const confetti: Particle[] = Array.from({ length: 60 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
@@ -46,7 +43,6 @@ export default function CelebrationOverlay({ message, subMessage, onDismiss }: C
       type: "confetti" as const,
       rotation: Math.random() * 360,
     }));
-
     const balloons: Particle[] = Array.from({ length: 10 }, (_, i) => ({
       id: 100 + i,
       x: 5 + Math.random() * 90,
@@ -58,14 +54,15 @@ export default function CelebrationOverlay({ message, subMessage, onDismiss }: C
       type: "balloon" as const,
       rotation: -15 + Math.random() * 30,
     }));
+    return [...confetti, ...balloons];
+  });
+  const [visible, setVisible] = useState(true);
 
-    setParticles([...confetti, ...balloons]);
-
+  useEffect(() => {
     const timer = setTimeout(() => {
       setVisible(false);
       setTimeout(onDismiss, 500);
     }, 5000);
-
     return () => clearTimeout(timer);
   }, [onDismiss]);
 

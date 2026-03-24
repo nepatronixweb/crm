@@ -165,7 +165,6 @@ const StudentSchema = new Schema<IStudentDocument>(
     counsellor: { type: Schema.Types.ObjectId, ref: "User", required: true },
     currentStage: {
       type: String,
-      enum: ["counsellor", "application", "admission", "visa", "completed", "rejected"],
       default: "counsellor",
     },
     stage: { type: String, default: "" },
@@ -188,5 +187,11 @@ StudentSchema.index({ branch: 1, currentStage: 1 });
 StudentSchema.index({ counsellor: 1 });
 StudentSchema.index({ lead: 1 }, { unique: true });
 StudentSchema.index({ createdAt: -1 });
+// Additional indexes for server-side filtering
+StudentSchema.index({ source: 1 });
+StudentSchema.index({ stage: 1 }); // CRM stage
+StudentSchema.index({ standing: 1 });
+StudentSchema.index({ enrolled: 1 });
+StudentSchema.index({ branch: 1, createdAt: -1 }); // multi-tenant paginated list
 
 export default mongoose.models.Student || mongoose.model<IStudentDocument>("Student", StudentSchema);

@@ -21,6 +21,14 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status");
     const from = searchParams.get("from");
     const to = searchParams.get("to");
+    const service = searchParams.get("service");
+    const stage = searchParams.get("stage");
+    const academicYear = searchParams.get("academicYear");
+    const applyLevel = searchParams.get("applyLevel");
+    const fdStatus = searchParams.get("status"); // FD workflow status (Open/Unassigned, etc.)
+    const search = searchParams.get("search");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(500, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {};
@@ -45,14 +53,30 @@ export async function GET(req: NextRequest) {
       if (from) filter.createdAt.$gte = new Date(from);
       if (to) filter.createdAt.$lte = new Date(to);
     }
+    if (service) filter.interestedService = service;
+    if (stage) filter.stage = stage;
+    if (academicYear) filter.academicYear = academicYear;
+    if (applyLevel) filter.applyLevel = applyLevel;
+    if (fdStatus) filter.status = fdStatus;
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      filter.$or = [{ name: regex }, { phone: regex }, { email: regex }];
+    }
 
-    const leads = await Lead.find(filter)
-      .populate("branch", "name")
-      .populate("assignedTo", "name email")
-      .populate("assignedBy", "name")
-      .sort({ createdAt: -1 });
-
-    return NextResponse.json(leads);
+    const skip = (page - 1) * limit;
+    const [leads, total] = await Promise.all([
+      Lead.find(filter)
+        .populate("branch", "name")
+        .populate("assignedTo", "name email")
+        .populate("assignedBy", "name")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Lead.countDocuments(filter),
+    ]);
+    return NextResponse.json({ leads, total, page, pages: Math.ceil(total / limit) });
   } catch {
     return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 });
   }

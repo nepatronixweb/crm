@@ -40,7 +40,7 @@ export default function AdmissionsPage() {
   useEffect(() => {
     fetch("/api/students?enrolled=true")
       .then((r) => r.json())
-      .then((d) => { setStudents(Array.isArray(d) ? d : []); setLoading(false); });
+      .then((d) => { setStudents(Array.isArray(d) ? d : (Array.isArray(d?.students) ? d.students : [])); setLoading(false); });
     fetch("/api/settings/app")
       .then((r) => r.json())
       .then((d) => {

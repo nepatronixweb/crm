@@ -40,7 +40,7 @@ export default function VisaPage() {
   useEffect(() => {
     fetch("/api/students?stage=visa")
       .then((r) => r.json())
-      .then((d) => { setStudents(Array.isArray(d) ? d : []); setLoading(false); });
+      .then((d) => { setStudents(Array.isArray(d) ? d : (Array.isArray(d?.students) ? d.students : [])); setLoading(false); });
     fetch("/api/settings/app")
       .then((r) => r.json())
       .then((d) => {
@@ -289,4 +289,4 @@ export default function VisaPage() {
     </div>
   );
 }
-
+

@@ -30,8 +30,10 @@ const NotificationSchema = new Schema<INotificationDocument>(
   { timestamps: true }
 );
 
-// Index for fast per-recipient queries
+// Compound index for per-recipient queries (read status + sorted)
 NotificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
+// Partial index for SSE new-notification polling (no read filter)
+NotificationSchema.index({ recipient: 1, createdAt: -1 });
 
 export default mongoose.models.Notification ||
   mongoose.model<INotificationDocument>("Notification", NotificationSchema);

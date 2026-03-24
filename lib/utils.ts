@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { UserRole } from "@/types";
+import { UserRole, Permission } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -182,3 +182,46 @@ export function canAccessModule(role: UserRole, module: string): boolean {
   };
   return permissions[module]?.includes(role) ?? false;
 }
+
+// ─── Permissions-based access check ─────────────────────────────────────────
+// Used by layout/UI when the user's personal permissions array is available.
+// Super admins always have full access regardless of stored permissions.
+export function hasPermission(
+  permissions: string[],
+  module: string,
+  role?: string
+): boolean {
+  if (role === "super_admin") return true;
+  return permissions.includes(module);
+}
+
+// ─── Default permissions pre-filled when a role is chosen in the user form ──
+export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, Permission[]> = {
+  super_admin: [
+    "leads", "students", "documents", "applications",
+    "admissions", "visa", "analytics", "branches",
+    "users", "settings", "activity_logs", "chat",
+  ],
+  counsellor: ["leads", "students", "documents", "applications", "chat"],
+  telecaller: ["leads", "chat"],
+  front_desk: ["leads", "chat"],
+  application_team: ["students", "documents", "applications", "chat"],
+  admission_team: ["students", "documents", "admissions", "chat"],
+  visa_team: ["students", "documents", "visa", "chat"],
+};
+
+// ─── All available module permissions (used to render checkboxes) ────────────
+export const ALL_PERMISSIONS: { key: Permission; label: string; description: string }[] = [
+  { key: "leads",         label: "Leads",             description: "Create, view & manage leads" },
+  { key: "students",      label: "Students",          description: "View & manage enrolled students" },
+  { key: "documents",     label: "Documents",         description: "Upload, verify & download documents" },
+  { key: "applications",  label: "Applications",      description: "Track university applications" },
+  { key: "admissions",    label: "Admissions",        description: "Manage admission pipeline" },
+  { key: "visa",          label: "Visa",              description: "Handle visa processing" },
+  { key: "chat",          label: "Chat",              description: "Internal team messaging" },
+  { key: "analytics",     label: "Analytics",         description: "View reports & performance data" },
+  { key: "branches",      label: "Branches",          description: "View & manage office branches" },
+  { key: "users",         label: "User Management",   description: "Create & manage team accounts" },
+  { key: "activity_logs", label: "Activity Logs",     description: "Full audit trail of all actions" },
+  { key: "settings",      label: "Settings",          description: "System-wide configuration" },
+];

@@ -6,6 +6,7 @@ export interface IUserDocument extends Document {
   email: string;
   password: string;
   role: UserRole;
+  permissions: string[];
   branch: mongoose.Types.ObjectId;
   dateOfBirth?: string;
   phone?: string;
@@ -26,6 +27,7 @@ const UserSchema = new Schema<IUserDocument>(
       enum: ["super_admin", "counsellor", "telecaller", "application_team", "admission_team", "visa_team", "front_desk"],
       required: true,
     },
+    permissions: { type: [String], default: [] },
     branch: { type: Schema.Types.ObjectId, ref: "Branch" },
     dateOfBirth: { type: String },
     phone: { type: String },
@@ -35,5 +37,10 @@ const UserSchema = new Schema<IUserDocument>(
   },
   { timestamps: true }
 );
+
+// Indexes for frequent query patterns
+UserSchema.index({ role: 1 });
+UserSchema.index({ branch: 1 });
+UserSchema.index({ isActive: 1, role: 1 });
 
 export default mongoose.models.User || mongoose.model<IUserDocument>("User", UserSchema);

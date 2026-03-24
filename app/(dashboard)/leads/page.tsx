@@ -48,6 +48,9 @@ export default function LeadsPage() {
   const [filterFdStatus, setFilterFdStatus] = useState("");
   const [branches, setBranches] = useState<{ _id: string; name: string }[]>([]);
   const [counsellors, setCounsellors] = useState<{ _id: string; name: string }[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalLeads, setTotalLeads] = useState(0);
 
   // Dynamic settings from admin
   const [appSources, setAppSources] = useState(DEFAULT_SOURCES);
@@ -77,16 +80,37 @@ export default function LeadsPage() {
     academicYear: "", applyLevel: "", course: "", intakeYear: "", intakeQuarter: "",
   });
 
-  const fetchLeads = async () => {
+  const fetchLeads = async (page = 1) => {
     setLoading(true);
-    const res = await fetch(`/api/leads`);
+    const params = new URLSearchParams();
+    params.set("page", page.toString());
+    params.set("limit", "50");
+    if (filterStatus) params.set("standing", filterStatus);
+    if (filterCountry) params.set("country", filterCountry);
+    if (filterAssignedTo) params.set("assignedTo", filterAssignedTo);
+    if (filterSource) params.set("source", filterSource);
+    if (filterDateFrom) params.set("from", filterDateFrom);
+    if (filterDateTo) params.set("to", filterDateTo);
+    if (filterService) params.set("service", filterService);
+    if (filterLeadStage) params.set("stage", filterLeadStage);
+    if (filterAcademicYear) params.set("academicYear", filterAcademicYear);
+    if (filterApplyLevel) params.set("applyLevel", filterApplyLevel);
+    if (filterFdStatus) params.set("status", filterFdStatus);
+    const res = await fetch(`/api/leads?${params}`);
     const data = await res.json();
-    setLeads(Array.isArray(data) ? data : []);
+    if (data && data.leads) {
+      setLeads(data.leads);
+      setTotalPages(data.pages ?? 1);
+      setTotalLeads(data.total ?? 0);
+      setCurrentPage(page);
+    } else {
+      setLeads(Array.isArray(data) ? data : []);
+    }
     setLoading(false);
   };
 
+  // Mount-only: load settings, branches, users
   useEffect(() => {
-    fetchLeads();
     fetch("/api/branches").then((r) => r.json()).then(setBranches);
     fetch("/api/users?role=counsellor").then((r) => r.json()).then((u) =>
       setCounsellors(Array.isArray(u) ? u : [])
@@ -127,7 +151,12 @@ export default function LeadsPage() {
         })));
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refetch leads whenever any filter changes (also fires on initial mount)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchLeads(1); }, [filterStatus, filterCountry, filterAssignedTo, filterSource, filterDateFrom, filterDateTo, filterService, filterLeadStage, filterAcademicYear, filterApplyLevel, filterFdStatus]);
 
   const clearFilters = () => {
     setFilterStatus("");
@@ -258,7 +287,7 @@ export default function LeadsPage() {
     if (!payload.assignedTo) delete payload.assignedTo;
     // Don't delete branch - let backend set it from session if needed
 
-    console.log("📤 Sending payload:", payload);
+
 
     try {
       let res: Response;
@@ -276,7 +305,6 @@ export default function LeadsPage() {
         });
       }
       const data = await res.json();
-      console.log("📥 Response data:", data, "Status:", res.status);
       if (res.ok) {
         const leadId = editingLead ? editingLead._id : (data._id || data.lead?._id);
         // Upload attached files one by one via chunked GridFS upload
@@ -300,8 +328,9 @@ export default function LeadsPage() {
             })
           );
         }
+        const nextPage = editingLead ? currentPage : 1;
         setShowForm(false);
-        fetchLeads();
+        fetchLeads(nextPage);
         resetForm();
       } else {
         setSubmitError(data?.error || (editingLead ? "Failed to update lead." : "Failed to create lead. Please try again."));
@@ -314,7 +343,9 @@ export default function LeadsPage() {
     }
   };
 
+  // Text-only client-side filter (structural filters are handled server-side)
   const filtered = leads.filter((l) => {
+    if (!search) return true;
     const q = search.toLowerCase();
     const assignedName = (l.assignedTo as unknown as { name: string } | undefined)?.name ?? "";
     const dateStr = formatDate(l.createdAt).toLowerCase();
@@ -324,8 +355,7 @@ export default function LeadsPage() {
         .filter(Boolean)
         .some((value) => (value || "").toLowerCase().includes(q))
     );
-    const matchesSearch =
-      !q ||
+    return (
       l.name.toLowerCase().includes(q) ||
       l.email.toLowerCase().includes(q) ||
       l.phone.includes(q) ||
@@ -335,22 +365,8 @@ export default function LeadsPage() {
       (l.course || "").toLowerCase().includes(q) ||
       (l.standing || "").replace("_", " ").toLowerCase().includes(q) ||
       assignedName.toLowerCase().includes(q) ||
-      dateStr.includes(q);
-    const matchesStatus = !filterStatus || l.standing === filterStatus;
-    const matchesCountry = !filterCountry || l.interestedCountry === filterCountry;
-    const matchesAssigned = !filterAssignedTo ||
-      (l.assignedTo as unknown as { _id: string } | undefined)?._id === filterAssignedTo;
-    const matchesSource = !filterSource || l.source === filterSource;
-    const matchesService = !filterService || l.interestedService === filterService;
-    // counsellors can't set a stage filter, but we still respect it if somehow present
-    const matchesLeadStage = !filterLeadStage || (l as unknown as { stage?: string }).stage === filterLeadStage;
-    const leadDate = new Date(l.createdAt);
-    const matchesDateFrom = !filterDateFrom || leadDate >= new Date(filterDateFrom);
-    const matchesDateTo = !filterDateTo || leadDate <= new Date(filterDateTo + "T23:59:59");
-    const matchesAcademicYear = !filterAcademicYear || (l as unknown as { academicYear?: string }).academicYear === filterAcademicYear;
-    const matchesApplyLevel = !filterApplyLevel || (l as unknown as { applyLevel?: string }).applyLevel === filterApplyLevel;
-    const matchesFdStatus = !filterFdStatus || (l as unknown as { status?: string }).status === filterFdStatus;
-    return matchesSearch && matchesStatus && matchesCountry && matchesAssigned && matchesSource && matchesService && matchesLeadStage && matchesDateFrom && matchesDateTo && matchesAcademicYear && matchesApplyLevel && matchesFdStatus;
+      dateStr.includes(q)
+    );
   });
 
   const canCreate = ["super_admin", "telecaller", "front_desk", "counsellor"].includes(session?.user?.role || "");
@@ -380,7 +396,7 @@ export default function LeadsPage() {
     if (!confirm(`Delete ${selectedLeads.size} selected lead(s)? This cannot be undone.`)) return;
     setBulkDeleting(true);
     const res = await fetch("/api/leads", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: Array.from(selectedLeads) }) });
-    if (res.ok) { setSelectedLeads(new Set()); fetchLeads(); }
+    if (res.ok) { setSelectedLeads(new Set()); fetchLeads(1); }
     setBulkDeleting(false);
   };
 
@@ -1176,13 +1192,32 @@ export default function LeadsPage() {
           </table>
         </div>
 
-        {/* Table footer count */}
-        {!loading && filtered.length > 0 && (
-          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+        {/* Table footer count + pagination */}
+        {!loading && (filtered.length > 0 || totalPages > 1) && (
+          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between gap-4 flex-wrap">
             <p className="text-xs text-gray-500">
-              Showing <span className="font-semibold text-gray-700">{filtered.length}</span> of{" "}
-              <span className="font-semibold text-gray-700">{leads.length}</span> leads
+              Showing <span className="font-semibold text-gray-700">{filtered.length}</span> on page {currentPage}
+              {totalLeads > 0 && <> of <span className="font-semibold text-gray-700">{totalLeads}</span> total leads</>}
             </p>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fetchLeads(currentPage - 1)}
+                  disabled={currentPage <= 1 || loading}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 tabular-nums">{currentPage} / {totalPages}</span>
+                <button
+                  onClick={() => fetchLeads(currentPage + 1)}
+                  disabled={currentPage >= totalPages || loading}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

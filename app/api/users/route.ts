@@ -43,13 +43,17 @@ export async function POST(req: NextRequest) {
     }
     await connectDB();
     const body = await req.json();
-    const { name, email, password, role, branch, dateOfBirth, phone, target } = body;
+    const { name, email, password, role, branch, dateOfBirth, phone, target, permissions } = body;
 
     const existing = await User.findOne({ email });
     if (existing) return NextResponse.json({ error: "Email already exists" }, { status: 400 });
 
     const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed, role, branch, dateOfBirth, phone, target });
+    const user = await User.create({
+      name, email, password: hashed, role,
+      permissions: Array.isArray(permissions) ? permissions : [],
+      branch, dateOfBirth, phone, target,
+    });
 
     await ActivityLog.create({
       user: session.user.id,

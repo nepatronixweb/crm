@@ -127,6 +127,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [showAdmissionForm, setShowAdmissionForm] = useState(false);
   const [admissionForm, setAdmissionForm] = useState(EMPTY_ADMISSION_FORM);
   const [savingAdmission, setSavingAdmission] = useState(false);
+  const [savingAdmissionRowIndex, setSavingAdmissionRowIndex] = useState<number | null>(null);
+  const [dirtyAdmissionRows, setDirtyAdmissionRows] = useState<Set<number>>(new Set());
   const [editingAdmission, setEditingAdmission] = useState<number | null>(null);
   const [editAdmissionForm, setEditAdmissionForm] = useState(EMPTY_ADMISSION_FORM);
   const [appCountries, setAppCountries] = useState<string[]>(DEFAULT_COUNTRIES);
@@ -140,6 +142,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const [appLeadStages, setAppLeadStages] = useState<{ value: string; label: string; group: string }[]>([]);
   const [appLeadStageGroups, setAppLeadStageGroups] = useState<string[]>([]);
   const [appRemarkOptions, setAppRemarkOptions] = useState<string[]>([]);
+  const [appStandings, setAppStandings] = useState<string[]>(["hot", "warm", "heated", "cold", "missed"]);
 
   const fetchData = async () => {
     const [studentRes, docsRes] = await Promise.all([
@@ -191,6 +194,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       }
       if (d?.remarkOptions?.length) {
         setAppRemarkOptions(d.remarkOptions);
+      }
+      if (d?.leadStandings?.length) {
+        setAppStandings(d.leadStandings);
       }
     }).catch(() => {});
   }, []);
@@ -371,7 +377,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     setStudent((prev) => prev ? { ...prev, admissionDetails: updatedStudent.admissionDetails ?? prev.admissionDetails } : prev);
   };
 
-  const quickUpdateAdmission = async (index: number, field: string, value: string) => {
+  const quickUpdateAdmission = (index: number, field: string, value: string) => {
     if (!student) return;
     const today = new Date().toISOString().split("T")[0];
     const extra = field === "stage" ? { statusDate: today } : {};
@@ -379,11 +385,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
       i === index ? { ...entry, [field]: value, ...extra } : entry
     );
     setStudent({ ...student, admissionDetails: updated });
+    setDirtyAdmissionRows((prev) => new Set(prev).add(index));
+  };
+
+  const saveAdmissionRow = async (index: number) => {
+    if (!student) return;
+    setSavingAdmissionRowIndex(index);
+    const updated = student.admissionDetails;
     await fetch(`/api/students/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ admissionDetails: updated }),
     });
+    setDirtyAdmissionRows((prev) => { const s = new Set(prev); s.delete(index); return s; });
+    setSavingAdmissionRowIndex(null);
   };
 
   const deleteAdmissionDetail = async (index: number) => {
@@ -442,7 +457,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     return <div className="flex items-center justify-center h-64 text-gray-400">Loading...</div>;
   }
 
-  const stages = ["counsellor", "application", "admission", "visa", "completed"];
+  const stages = appLeadStageGroups.length > 0 ? appLeadStageGroups : ["counsellor", "application", "admission", "visa", "completed"];
   const role = session?.user?.role || "";
   const canUpload = ["super_admin", "counsellor", "application_team"].includes(role);
   const canNote = ["super_admin", "counsellor", "application_team", "admission_team", "visa_team"].includes(role);
@@ -770,11 +785,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-xl text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 transition-all"
                             >
                               <option value="">Select standing</option>
-                              <option value="hot">🔴 Hot</option>
-                              <option value="warm">🟠 Warm</option>
-                              <option value="heated">🟡 Heated</option>
-                              <option value="cold">🔵 Cold</option>
-                              <option value="missed">⚪ Missed</option>
+                              {appStandings.map((s) => (
+                                <option key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</option>
+                              ))}
                             </select>
                           </div>
                           <div>
@@ -1154,11 +1167,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                 >
                                   <option value="">Select standing</option>
-                                  <option value="hot">🔴 Hot</option>
-                                  <option value="warm">🟠 Warm</option>
-                                  <option value="heated">🟡 Heated</option>
-                                  <option value="cold">🔵 Cold</option>
-                                  <option value="missed">⚪ Missed</option>
+                                  {appStandings.map((s) => (
+                                    <option key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</option>
+                                  ))}
                                 </select>
                               </div>
                               <div>
@@ -1578,7 +1589,22 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             </div>
                           </div>
 
-                          {/* Courses */}
+                          {/* Update button — shown when any field in this row has been changed */}
+                          {canAdmission && dirtyAdmissionRows.has(index) && (
+                            <div className="px-4 pb-3">
+                              <button
+                                onClick={() => saveAdmissionRow(index)}
+                                disabled={savingAdmissionRowIndex === index}
+                                className="w-full flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-xs font-semibold rounded-xl transition-colors"
+                              >
+                                {savingAdmissionRowIndex === index ? (
+                                  <><svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg> Saving…</>
+                                ) : (
+                                  <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Update</>
+                                )}
+                              </button>
+                            </div>
+                          )}
                           {entry.courses && entry.courses.length > 0 && (
                             <div className="px-4 pb-4 pt-2">
                               <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Courses</p>
@@ -1698,7 +1724,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                   onChange={(e) => setNote(e.target.value)}
                   rows={2}
                   placeholder="Add note..."
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <button onClick={addNote} disabled={!note.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg text-sm">
                   Add

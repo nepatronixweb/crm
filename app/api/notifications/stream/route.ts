@@ -29,49 +29,55 @@ export async function GET(req: NextRequest) {
         }
       };
 
-      // Send initial unread count immediately on connect
+      // Send initial state with a single aggregation (recent + unread count)
       try {
-        const unreadCount = await Notification.countDocuments({
-          recipient: userId,
-          read: false,
-        });
-        const recent = await Notification.find({ recipient: userId })
-          .sort({ createdAt: -1 })
-          .limit(15)
-          .lean();
-        send({ type: "init", unreadCount, notifications: recent });
+        const [result] = await Notification.aggregate([
+          { $match: { recipient: new (await import("mongoose")).default.Types.ObjectId(userId) } },
+          {
+            $facet: {
+              recent: [{ $sort: { createdAt: -1 } }, { $limit: 15 }],
+              unreadCount: [{ $match: { read: false } }, { $count: "n" }],
+            },
+          },
+        ]);
+        const unreadCount: number = result?.unreadCount?.[0]?.n ?? 0;
+        const notifications = result?.recent ?? [];
+        send({ type: "init", unreadCount, notifications });
       } catch {
         send({ type: "init", unreadCount: 0, notifications: [] });
       }
 
-      // Poll every 5 seconds for new notifications
+      // Poll every 10 seconds — single aggregation per tick
       const interval = setInterval(async () => {
         try {
           const since = lastCheck;
           lastCheck = new Date();
 
-          const newNotifs = await Notification.find({
-            recipient: userId,
-            createdAt: { $gt: since },
-          })
-            .sort({ createdAt: -1 })
-            .lean();
+          const [result] = await Notification.aggregate([
+            { $match: { recipient: new (await import("mongoose")).default.Types.ObjectId(userId) } },
+            {
+              $facet: {
+                newNotifs: [
+                  { $match: { createdAt: { $gt: since } } },
+                  { $sort: { createdAt: -1 } },
+                ],
+                unreadCount: [{ $match: { read: false } }, { $count: "n" }],
+              },
+            },
+          ]);
 
-          const unreadCount = await Notification.countDocuments({
-            recipient: userId,
-            read: false,
-          });
+          const newNotifs = result?.newNotifs ?? [];
+          const unreadCount: number = result?.unreadCount?.[0]?.n ?? 0;
 
           if (newNotifs.length > 0) {
             send({ type: "new", notifications: newNotifs, unreadCount });
           } else {
-            // heartbeat — keeps the connection alive and syncs unread count
             send({ type: "heartbeat", unreadCount });
           }
         } catch {
           send({ type: "heartbeat", unreadCount: 0 });
         }
-      }, 5000);
+      }, 10000);
 
       // Cleanup when client disconnects
       req.signal.addEventListener("abort", () => {

@@ -21,6 +21,11 @@ export async function GET(req: NextRequest) {
     const leadId = searchParams.get("leadId");
     const standing = searchParams.get("standing");
     const enrolled = searchParams.get("enrolled");
+    const source = searchParams.get("source");
+    const crmStage = searchParams.get("crmStage"); // student.stage (CRM pipeline tag)
+    const search = searchParams.get("search");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(500, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {};
@@ -34,19 +39,32 @@ export async function GET(req: NextRequest) {
     if (leadId) { filter.lead = leadId; delete filter.branch; delete filter.counsellor; }
     if (standing) filter.standing = standing;
     if (enrolled === "true") filter.enrolled = true;
+    if (source) filter.source = source;
+    if (crmStage) filter.stage = crmStage;
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      filter.$or = [{ name: regex }, { phone: regex }, { email: regex }];
+    }
 
     const needsLead = !enrolled && !stage;
     const leadPopulate = needsLead
       ? { path: "lead", select: "source interestedService interestedCountry interestedCountries parentName parentPhone1 parentPhone2 academicScore academicInstitution temporaryAddress permanentAddress examType examScore examJoinDate examStartDate examEndDate examPaymentMethod examEstimatedDate gender maritalStatus nationality passportNumber visaExpiryDate senderName academicYear applyLevel course intakeYear intakeQuarter comments" }
       : { path: "lead", select: "_id" };
-    const students = await Student.find(filter)
-      .populate("branch", "name")
-      .populate("counsellor", "name email")
-      .populate(leadPopulate)
-      .sort({ createdAt: -1 })
-      .lean();
 
-    return NextResponse.json(students);
+    const skip = (page - 1) * limit;
+    const [students, total] = await Promise.all([
+      Student.find(filter)
+        .populate("branch", "name")
+        .populate("counsellor", "name email")
+        .populate(leadPopulate)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Student.countDocuments(filter),
+    ]);
+    return NextResponse.json({ students, total, page, pages: Math.ceil(total / limit) });
   } catch {
     return NextResponse.json({ error: "Failed to fetch students" }, { status: 500 });
   }

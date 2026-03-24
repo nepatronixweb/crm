@@ -64,13 +64,13 @@ export default function ApplicationsPage() {
     if (filterStatus) params.set("status", filterStatus);
     const res = await fetch(`/api/applications?${params}`);
     const data = await res.json();
-    setApps(Array.isArray(data) ? data : []);
+    setApps(Array.isArray(data) ? data : (Array.isArray(data?.applications) ? data.applications : []));
     setLoading(false);
   };
 
   useEffect(() => {
     fetchApps();
-    fetch("/api/students").then((r) => r.json()).then((s) => setStudents(Array.isArray(s) ? s : []));
+    fetch("/api/students").then((r) => r.json()).then((s) => setStudents(Array.isArray(s) ? s : (Array.isArray(s?.students) ? s.students : [])));
     fetch("/api/settings/app")
       .then((r) => r.json())
       .then((d) => {

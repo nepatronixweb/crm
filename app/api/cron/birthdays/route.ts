@@ -86,8 +86,9 @@ async function sendBirthdayEmail(
 }
 
 export async function GET(req: NextRequest) {
-  // Simple secret check
-  const secret = req.nextUrl.searchParams.get("secret");
+  // Validate secret via Authorization header (never expose secrets in URLs)
+  const authHeader = req.headers.get("authorization");
+  const secret = authHeader?.replace("Bearer ", "").trim();
   if (secret !== process.env.CRON_SECRET && process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

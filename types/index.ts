@@ -7,6 +7,20 @@ export type UserRole =
   | "visa_team"
   | "front_desk";
 
+export type Permission =
+  | "leads"
+  | "students"
+  | "documents"
+  | "applications"
+  | "admissions"
+  | "visa"
+  | "analytics"
+  | "branches"
+  | "users"
+  | "settings"
+  | "activity_logs"
+  | "chat";
+
 export type LeadStanding = "warm" | "heated" | "cold" | "missed";
 
 export type LeadStatus =
@@ -40,13 +54,7 @@ export type LeadStatus =
   | "Interested"
   | "Closed Lost";
 
-export type StudentStage =
-  | "counsellor"
-  | "application"
-  | "admission"
-  | "visa"
-  | "completed"
-  | "rejected";
+export type StudentStage = string;
 
 export type LeadSource =
   | "walk_in"
@@ -65,6 +73,7 @@ export interface IUser {
   email: string;
   password: string;
   role: UserRole;
+  permissions: Permission[];
   branch: string;
   dateOfBirth?: string;
   phone?: string;
