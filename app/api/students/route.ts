@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import connectDB from "@/lib/mongodb";
 import Student from "@/models/Student";
 import Lead from "@/models/Lead";
@@ -120,9 +121,15 @@ export async function POST(req: NextRequest) {
     if (lead.convertedToStudent) return NextResponse.json({ error: "Lead already converted" }, { status: 400 });
 
     const counsellor = lead.assignedTo || session.user.id;
-    const branch = lead.branch || session.user.branch;
 
-    if (!branch) return NextResponse.json({ error: "No branch assigned to this lead or your account" }, { status: 400 });
+    // Try session branch first; if missing (stale token), do a fresh DB lookup
+    let branch: mongoose.Types.ObjectId | string | undefined = lead.branch || session.user.branch;
+    if (!branch) {
+      const counsellorUser = await User.findById(counsellor).select("branch").lean();
+      branch = (counsellorUser as { branch?: mongoose.Types.ObjectId })?.branch?.toString();
+    }
+
+    if (!branch) return NextResponse.json({ error: "No branch found. Please assign a branch to this lead or your user account, then try again." }, { status: 400 });
     if (!counsellor) return NextResponse.json({ error: "No counsellor assigned" }, { status: 400 });
 
     const VALID_SOURCES = ["walk_in", "facebook", "whatsapp", "instagram", "website", "referral", "other"];
@@ -140,9 +147,10 @@ export async function POST(req: NextRequest) {
 
     const student = await Student.create({
       lead: leadId,
-      name: lead.name,
-      phone: lead.phone,
-      email: lead.email,
+      // Fallback for leads that were created with missing fields
+      name: lead.name || lead.phone || lead.email || "Unknown Client",
+      phone: lead.phone || "",
+      email: lead.email || "",
       dateOfBirth: lead.dateOfBirth,
       source,
       branch,
@@ -169,8 +177,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ message: "Student created", student }, { status: 201 });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Failed to create student" }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Failed to create student";
+    console.error("[POST /api/students] error:", err);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

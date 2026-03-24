@@ -15,7 +15,7 @@ const CourseSchema = new Schema(
   {
     name: { type: String, required: true },
     level: { type: String, default: "" },
-    intakeQuarter: { type: String, enum: ["Q1", "Q2", "Q3", "Q4"], default: "" },
+    intakeQuarter: { type: String, enum: ["Q1", "Q2", "Q3", "Q4", ""], default: "" },
     intakeYear: { type: String, default: "" },
     commencementDate: { type: String, default: "" },
   },
@@ -154,8 +154,8 @@ const StudentSchema = new Schema<IStudentDocument>(
   {
     lead: { type: Schema.Types.ObjectId, ref: "Lead", required: true },
     name: { type: String, required: true },
-    phone: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
+    phone: { type: String, default: "" },
+    email: { type: String, default: "", lowercase: true },
     dateOfBirth: { type: String },
     source: { type: String, enum: ["walk_in", "facebook", "whatsapp", "instagram", "website", "referral", "other"] },
     branch: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
