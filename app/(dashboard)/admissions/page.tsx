@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useEffect, useState } from "react";
 import { GraduationCap, Search, Phone, Mail } from "lucide-react";
 import Link from "next/link";
@@ -36,6 +36,36 @@ export default function AdmissionsPage() {
   const [appLeadStages, setAppLeadStages] = useState<{ value: string; label: string; group: string }[]>([]);
   const [appLeadStageGroups, setAppLeadStageGroups] = useState<string[]>([]);
   const [appRemarkOptions, setAppRemarkOptions] = useState<string[]>([]);
+  const [stageToPipelineMapping, setStageToPipelineMapping] = useState<Record<string, string>>({});
+
+  // BRUTAL MAPPING - Maps every stage to its pipeline automatically
+  const STAGE_TO_PIPELINE = {
+    "document_pending": "Application",
+    "document_submitted": "Application",
+    "offer_applied": "Offer",
+    "acknowledge": "Offer",
+    "document_requested": "Offer",
+    "document_sent": "Offer",
+    "conditional_offer_received": "Offer",
+    "unconditional_offer_received": "Offer",
+    "offer_rejected": "Offer",
+    "gs_applied": "GS",
+    "gs_additional_doc_requested": "GS",
+    "gs_additional_doc_sent": "GS",
+    "gs_approved": "GS",
+    "gs_rejected": "GS",
+    "coe_applied": "COE",
+    "coe_additional_doc_requested": "COE",
+    "coe_additional_doc_sent": "COE",
+    "coe_received": "COE",
+    "coe_rejected": "COE",
+    "coe_withdrawn": "COE",
+    "visa_applied": "Visa",
+    "visa_grant": "Visa",
+    "visa_reject": "Visa",
+    "visa_invalid": "Visa",
+    "visa_withdrawn": "Visa"
+  };
 
   useEffect(() => {
     fetch("/api/students?enrolled=true")
@@ -47,30 +77,76 @@ export default function AdmissionsPage() {
         if (d?.leadStages?.length) setAppLeadStages(d.leadStages);
         if (d?.leadStageGroups?.length) setAppLeadStageGroups(d.leadStageGroups);
         if (d?.remarkOptions?.length) setAppRemarkOptions(d.remarkOptions);
+        if (d?.stageToPipelineMapping) setStageToPipelineMapping(d.stageToPipelineMapping);
       }).catch(() => {});
   }, []);
 
   const quickUpdate = async (studentId: string, entryIndex: number, field: string, value: string) => {
     const today = new Date().toISOString().split("T")[0];
-    let updatedDetails: AdmissionEntry[] = [];
-    setStudents((prev) =>
-      prev.map((s) => {
-        if (s._id !== studentId) return s;
-        const details = (s.admissionDetails || []).map((entry, i) => {
+    
+    // STEP 1: Update state FIRST - optimistic update
+    setStudents((prevStudents) => {
+      return prevStudents.map((student) => {
+        if (student._id !== studentId) return student;
+        
+        const updatedAdmissionDetails = (student.admissionDetails || []).map((entry, i) => {
           if (i !== entryIndex) return entry;
-          const patch: Partial<AdmissionEntry> = { [field]: value };
-          if (field === "stage") patch.statusDate = today;
-          return { ...entry, ...patch };
+          
+          const updated = { ...entry, [field]: value };
+          
+          // Auto-map pipeline, clear remarks & standing when stage changes
+          if (field === "stage") {
+            updated.statusDate = today;
+            const mappedPipeline = STAGE_TO_PIPELINE[value as keyof typeof STAGE_TO_PIPELINE];
+            if (mappedPipeline) {
+              updated.pipeline = mappedPipeline;
+            }
+            updated.remarks = "";
+            updated.standing = "";
+          }
+          
+          return updated;
         });
-        updatedDetails = details;
-        return { ...s, admissionDetails: details };
-      })
-    );
-    await fetch(`/api/students/${studentId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admissionDetails: updatedDetails }),
+        
+        return { ...student, admissionDetails: updatedAdmissionDetails };
+      });
     });
+    
+    // STEP 2: Send to API (fire and forget style, but we still need to sync)
+    try {
+      // Get fresh data from students state after update
+      const freshStudent = students.find(s => s._id === studentId);
+      if (!freshStudent) return;
+      
+      const admissionDetailsToSend = (freshStudent.admissionDetails || []).map((entry, i) => {
+        if (i !== entryIndex) return entry;
+        
+        const payload = { ...entry, [field]: value };
+        if (field === "stage") {
+          payload.statusDate = today;
+          const mappedPipeline = STAGE_TO_PIPELINE[value as keyof typeof STAGE_TO_PIPELINE];
+          if (mappedPipeline) payload.pipeline = mappedPipeline;
+          payload.remarks = "";
+          payload.standing = "";
+        }
+        return payload;
+      });
+      
+      const response = await fetch(`/api/students/${studentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ admissionDetails: admissionDetailsToSend }),
+      });
+      
+      if (response.ok) {
+        const updated = await response.json();
+        // Sync with server response
+        setStudents(prev => prev.map(s => (s._id === studentId ? updated : s)));
+        console.log("✅ Saved to database");
+      }
+    } catch (err) {
+      console.error("Save error:", err);
+    }
   };
 
   const filtered = students.filter((s) => {
@@ -248,15 +324,12 @@ export default function AdmissionsPage() {
                     </div>
                     {/* Pipeline */}
                     <div className="px-2 py-2">
-                      <select
-                        value={entry.pipeline || ""}
-                        disabled={entry.closed}
-                        onChange={(e) => quickUpdate(s._id, entryIndex, "pipeline", e.target.value)}
-                        className="w-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 rounded-full px-2 py-1 focus:outline-none cursor-pointer disabled:cursor-default"
+                      <div
+                        className="w-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 rounded-full px-2 py-1 cursor-not-allowed flex items-center"
+                        title="Automatically set based on stage"
                       >
-                        <option value="">—</option>
-                        {appLeadStageGroups.map((g) => <option key={g} value={g}>{g}</option>)}
-                      </select>
+                        {entry.pipeline || "—"}
+                      </div>
                     </div>
                     {/* Status Date */}
                     <div className="px-2 py-2">

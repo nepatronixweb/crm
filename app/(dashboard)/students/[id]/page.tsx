@@ -380,7 +380,11 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const quickUpdateAdmission = (index: number, field: string, value: string) => {
     if (!student) return;
     const today = new Date().toISOString().split("T")[0];
-    const extra = field === "stage" ? { statusDate: today } : {};
+    let extra: Record<string, string> = {};
+    if (field === "stage") {
+      const autoPipeline = appLeadStages.find((s) => s.value === value)?.group || "";
+      extra = { statusDate: today, pipeline: autoPipeline, remarks: "", standing: "" };
+    }
     const updated = student.admissionDetails.map((entry, i) =>
       i === index ? { ...entry, [field]: value, ...extra } : entry
     );
@@ -1509,23 +1513,15 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                   </div>
                                 )}
                               </div>
-                              {/* PIPELINE */}
+                              {/* PIPELINE — auto-set from stage, read-only */}
                               <div>
                                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Pipeline</p>
-                                {canAdmission ? (
-                                  <select
-                                    value={entry.pipeline || ""}
-                                    onChange={(e) => quickUpdateAdmission(index, "pipeline", e.target.value)}
-                                    className="w-full text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200 rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer text-center"
-                                  >
-                                    <option value="">—</option>
-                                    {appLeadStageGroups.map((g) => <option key={g} value={g}>{g}</option>)}
-                                  </select>
-                                ) : (
-                                  <div className="text-center text-xs font-semibold px-2 py-1.5 bg-purple-50 text-purple-800 rounded-lg border border-purple-100 truncate">
-                                    {entry.pipeline || "—"}
-                                  </div>
-                                )}
+                                <div
+                                  className="text-center text-xs font-semibold px-2 py-1.5 bg-purple-50 text-purple-800 rounded-lg border border-purple-100 truncate cursor-not-allowed"
+                                  title="Automatically set based on stage"
+                                >
+                                  {entry.pipeline || "—"}
+                                </div>
                               </div>
                               {/* STATUS DATE */}
                               <div>
