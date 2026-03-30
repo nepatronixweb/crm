@@ -196,6 +196,7 @@ export default function DashboardPage() {
   const [importSources, setImportSources] = useState<string[]>(["Walk-in","Referral","Social Media","Website","Partner","Phone Call","Email","Exhibition","Other"]);
   const [importPreview, setImportPreview] = useState<Record<string, string>[]>([]);
   const [importFileName, setImportFileName] = useState("");
+  const [importLeadType, setImportLeadType] = useState<"fresh" | "cold">("fresh");
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -385,14 +386,15 @@ export default function DashboardPage() {
       const res = await fetch("/api/leads/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaign: importCampaign, source: importSource, importDate, rows }),
+        body: JSON.stringify({ campaign: importCampaign, source: importSource, importDate, leadType: importLeadType, rows }),
       });
       const d = await res.json();
       if (res.ok) {
-        setImportResult({ type: "success", msg: `✓ ${d.imported} leads imported successfully for campaign "${d.campaign}"!` });
+        setImportResult({ type: "success", msg: `✓ ${d.imported} ${importLeadType === "cold" ? "cold" : "fresh"} leads imported for campaign "${d.campaign}"!` });
         setImportPreview([]);
         setImportFileName("");
         setImportCampaign("");
+        setImportLeadType("fresh");
         if (importFileRef.current) importFileRef.current.value = "";
         // Refresh telecaller leads
         fetch("/api/leads?page=1&limit=1000").then(r => r.json())
@@ -1426,7 +1428,7 @@ export default function DashboardPage() {
                         <p className="text-white font-bold text-lg">{new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</p>
                       </div>
                       <button
-                        onClick={() => { setShowImport(true); setImportResult(null); }}
+                        onClick={() => { setShowImport(true); setImportResult(null); setImportLeadType("fresh"); }}
                         className="flex items-center gap-2 px-4 py-2.5 bg-white text-violet-700 rounded-xl font-bold text-sm hover:bg-violet-50 transition-colors shadow-lg shadow-violet-900/20"
                       >
                         <Upload size={15} />
@@ -1660,6 +1662,64 @@ export default function DashboardPage() {
                               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all"
                             />
                           </div>
+                        </div>
+
+                        {/* ── Lead Type ── */}
+                        <div>
+                          <label className="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                            Enquiry Lead Status <span className="text-red-500">*</span>
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            {/* Fresh */}
+                            <button
+                              type="button"
+                              onClick={() => setImportLeadType("fresh")}
+                              className={`relative flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
+                                importLeadType === "fresh"
+                                  ? "border-emerald-500 bg-emerald-50 shadow-sm shadow-emerald-100"
+                                  : "border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+                              }`}
+                            >
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${importLeadType === "fresh" ? "bg-emerald-100" : "bg-gray-100"}`}>
+                                <UserPlus size={16} className={importLeadType === "fresh" ? "text-emerald-600" : "text-gray-400"} />
+                              </div>
+                              <div className="min-w-0">
+                                <p className={`text-sm font-bold ${importLeadType === "fresh" ? "text-emerald-800" : "text-gray-700"}`}>Fresh Leads</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">Open / needs follow-up</p>
+                              </div>
+                              <div className={`absolute top-3 right-3 w-4 h-4 rounded-full border-2 flex items-center justify-center ${importLeadType === "fresh" ? "border-emerald-500 bg-emerald-500" : "border-gray-300"}`}>
+                                {importLeadType === "fresh" && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                              </div>
+                            </button>
+
+                            {/* Cold */}
+                            <button
+                              type="button"
+                              onClick={() => setImportLeadType("cold")}
+                              className={`relative flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
+                                importLeadType === "cold"
+                                  ? "border-blue-500 bg-blue-50 shadow-sm shadow-blue-100"
+                                  : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+                              }`}
+                            >
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${importLeadType === "cold" ? "bg-blue-100" : "bg-gray-100"}`}>
+                                <Flame size={16} className={importLeadType === "cold" ? "text-blue-500" : "text-gray-400"} />
+                              </div>
+                              <div className="min-w-0">
+                                <p className={`text-sm font-bold ${importLeadType === "cold" ? "text-blue-800" : "text-gray-700"}`}>Cold Leads</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">Low interest / not reachable</p>
+                              </div>
+                              <div className={`absolute top-3 right-3 w-4 h-4 rounded-full border-2 flex items-center justify-center ${importLeadType === "cold" ? "border-blue-500 bg-blue-500" : "border-gray-300"}`}>
+                                {importLeadType === "cold" && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                              </div>
+                            </button>
+                          </div>
+                          {/* Descriptor */}
+                          <p className={`text-[11px] mt-2 font-medium ${importLeadType === "fresh" ? "text-emerald-600" : "text-blue-600"}`}>
+                            {importLeadType === "fresh"
+                              ? "→ Leads will be marked as Open/Unassigned and counted in Fresh Leads"
+                              : "→ Leads will be marked as Cold and counted in Cold section"}
+                          </p>
                         </div>
 
                         {/* ── File Upload ── */}

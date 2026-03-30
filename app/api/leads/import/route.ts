@@ -24,15 +24,19 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { campaign, source, importDate, rows } = body as {
+    const { campaign, source, importDate, leadType, rows } = body as {
       campaign: string;
       source: string;
       importDate: string;
+      leadType: "fresh" | "cold";
       rows: ImportedRow[];
     };
 
     if (!campaign?.trim()) return NextResponse.json({ error: "Campaign name is required" }, { status: 400 });
     if (!source?.trim())   return NextResponse.json({ error: "Source is required" }, { status: 400 });
+    if (!leadType || !["fresh","cold"].includes(leadType)) {
+      return NextResponse.json({ error: "Lead type (fresh or cold) is required" }, { status: 400 });
+    }
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ error: "No leads found in the file" }, { status: 400 });
     }
@@ -42,6 +46,10 @@ export async function POST(req: NextRequest) {
     const importTs = importDate ? new Date(importDate) : new Date();
     const branch   = session.user.branch;
     const userId   = session.user.id;
+
+    // standing/status based on lead type
+    const standing = leadType === "cold" ? "cold" : "warm";
+    const status   = leadType === "cold" ? "AP-Not Interested" : "Open/Unassigned";
 
     // Build lead documents
     const docs = rows
@@ -55,10 +63,10 @@ export async function POST(req: NextRequest) {
         source,
         campaign:         campaign.trim(),
         importDate:       importTs,
-        status:           "Open/Unassigned",
-        standing:         "warm",
+        status,
+        standing,
         branch:           branch || undefined,
-        assignedTo:       userId, // assign to importer
+        assignedTo:       userId,
         assignedBy:       userId,
       }));
 
@@ -76,7 +84,7 @@ export async function POST(req: NextRequest) {
       module:   "Leads",
       targetId: "bulk",
       targetName: `${inserted.length} leads`,
-      details:  `Bulk import — Campaign: "${campaign}", Source: ${source}, ${inserted.length} leads added`,
+      details:  `Bulk import — Campaign: "${campaign}", Type: ${leadType}, Source: ${source}, ${inserted.length} leads added`,
     });
 
     return NextResponse.json({ imported: inserted.length, campaign }, { status: 201 });
