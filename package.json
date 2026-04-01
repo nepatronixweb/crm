@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "npx tsx --env-file=.env.local scripts/seed.ts",
-    "seed:frontdesk": "npx tsx --env-file=.env.local scripts/seed-frontdesk.ts"
+    "seed:frontdesk": "npx tsx --env-file=.env.local scripts/seed-frontdesk.ts",
+    "db:copy-prod-local": "npx tsx --env-file=.env.local scripts/copy-prod-to-local.ts"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.11.1",
