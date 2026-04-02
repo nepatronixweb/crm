@@ -1,4 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { DEFAULT_APPLICATION_ROLES } from "@/lib/applicationRoles";
+import { DEFAULT_TELECALLER_TRANSFER_OUTCOMES } from "@/lib/telecallerTransferConfig";
 
 export interface IAppSettings extends Document {
   // Branding
@@ -32,6 +34,8 @@ export interface IAppSettings extends Document {
   educationLevels: string[];
   // Module toggles (list of enabled module keys)
   enabledModules: string[];
+  /** Optional override: country name → default commission % (Commission module). */
+  commissionPercentByCountry: Record<string, number>;
   // Email / SMTP
   smtpHost: string;
   smtpPort: number;
@@ -42,6 +46,18 @@ export interface IAppSettings extends Document {
   paymentQrPath: string;
   // Meta
   updatedAt: Date;
+  /** Editable in Settings — drives user role dropdown & default permissions. */
+  applicationRoles: { slug: string; label: string; defaultPermissions: string[] }[];
+  /** Telecaller leads table Transfer dropdown + PATCH behaviour. */
+  telecallerTransferOutcomes: {
+    id: string;
+    label: string;
+    effect: string;
+    fdStatus?: string;
+    standing?: string;
+    requiresCounsellor?: boolean;
+    requiresAppointmentDate?: boolean;
+  }[];
 }
 
 const AppSettingsSchema = new Schema<IAppSettings>(
@@ -309,8 +325,12 @@ const AppSettingsSchema = new Schema<IAppSettings>(
     // All modules enabled by default
     enabledModules: {
       type: [String],
-      default: ["leads", "students", "documents", "applications", "admissions", "visa", "analytics", "branches", "users", "activity_logs", "settings"],
+      default: [
+        "leads", "students", "documents", "applications", "admissions", "visa", "analytics",
+        "branches", "users", "activity_logs", "settings", "commission",
+      ],
     },
+    commissionPercentByCountry: { type: Schema.Types.Mixed, default: () => ({}) },
     // SMTP
     smtpHost:      { type: String, default: "" },
     smtpPort:      { type: Number, default: 587 },
@@ -319,6 +339,30 @@ const AppSettingsSchema = new Schema<IAppSettings>(
     emailFromName: { type: String, default: "" },
     // Payment QR
     paymentQrPath: { type: String, default: "" },
+    applicationRoles: {
+      type: [
+        {
+          slug: { type: String, required: true },
+          label: { type: String, required: true },
+          defaultPermissions: { type: [String], default: [] },
+        },
+      ],
+      default: () => DEFAULT_APPLICATION_ROLES.map((r) => ({ ...r, defaultPermissions: [...r.defaultPermissions] })),
+    },
+    telecallerTransferOutcomes: {
+      type: [
+        {
+          id: { type: String, required: true },
+          label: { type: String, required: true },
+          effect: { type: String, required: true },
+          fdStatus: { type: String },
+          standing: { type: String },
+          requiresCounsellor: { type: Boolean, default: false },
+          requiresAppointmentDate: { type: Boolean, default: false },
+        },
+      ],
+      default: () => DEFAULT_TELECALLER_TRANSFER_OUTCOMES.map((o) => ({ ...o })),
+    },
   },
   { timestamps: true }
 );

@@ -20,12 +20,23 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const res = await signIn("credentials", { email, password, redirect: false });
+    const res = await signIn("credentials", {
+      email: email.trim(),
+      password,
+      redirect: false,
+    });
     if (res?.error) {
-      setError("Invalid email or password. Please try again.");
+      if (res.error === "CredentialsSignin") {
+        setError("Invalid email or password. Please try again.");
+      } else {
+        setError(res.error);
+      }
       setLoading(false);
-    } else {
+    } else if (res?.ok) {
       router.push("/dashboard");
+    } else {
+      setError("Could not sign in. Check your connection and try again.");
+      setLoading(false);
     }
   };
 

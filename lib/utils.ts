@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { UserRole, Permission } from "@/types";
+import { Permission } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,8 +24,8 @@ export function formatDateTime(date: Date | string): string {
   });
 }
 
-export function getRoleBadgeColor(role: UserRole): string {
-  const colors: Record<UserRole, string> = {
+export function getRoleBadgeColor(role: string): string {
+  const colors: Record<string, string> = {
     super_admin: "bg-red-100 text-red-800",
     counsellor: "bg-blue-100 text-blue-800",
     telecaller: "bg-green-100 text-green-800",
@@ -37,8 +37,11 @@ export function getRoleBadgeColor(role: UserRole): string {
   return colors[role] || "bg-gray-100 text-gray-800";
 }
 
-export function getRoleLabel(role: UserRole): string {
-  const labels: Record<UserRole, string> = {
+export function getRoleLabel(role: string | undefined | null, catalog?: { slug: string; label: string }[]): string {
+  if (role == null || role === "") return "Member";
+  const fromCatalog = catalog?.find((r) => r.slug === role);
+  if (fromCatalog) return fromCatalog.label;
+  const labels: Record<string, string> = {
     super_admin: "Super Admin",
     counsellor: "Counsellor",
     telecaller: "Telecaller",
@@ -47,7 +50,7 @@ export function getRoleLabel(role: UserRole): string {
     visa_team: "Visa Team",
     front_desk: "Front Desk",
   };
-  return labels[role] || role;
+  return labels[role] || role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function getStatusColor(status: string): string {
@@ -165,8 +168,8 @@ export const SERVICES = [
   "Career Counselling", "Document Verification",
 ];
 
-export function canAccessModule(role: UserRole, module: string): boolean {
-  const permissions: Record<string, UserRole[]> = {
+export function canAccessModule(role: string, module: string): boolean {
+  const permissions: Record<string, string[]> = {
     users: ["super_admin"],
     branches: ["super_admin"],
     analytics: ["super_admin"],
@@ -179,6 +182,7 @@ export function canAccessModule(role: UserRole, module: string): boolean {
     admissions: ["super_admin", "admission_team"],
     visa: ["super_admin", "visa_team"],
     chat: ["super_admin", "counsellor", "telecaller", "front_desk", "application_team", "admission_team", "visa_team"],
+    commission: ["super_admin", "admission_team"],
   };
   return permissions[module]?.includes(role) ?? false;
 }
@@ -196,17 +200,17 @@ export function hasPermission(
 }
 
 // ─── Default permissions pre-filled when a role is chosen in the user form ──
-export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, Permission[]> = {
+export const ROLE_DEFAULT_PERMISSIONS: Record<string, Permission[]> = {
   super_admin: [
     "leads", "students", "documents", "applications",
     "admissions", "visa", "analytics", "branches",
-    "users", "settings", "activity_logs", "chat",
+    "users", "settings", "activity_logs", "chat", "commission",
   ],
   counsellor: ["leads", "students", "documents", "applications", "chat"],
   telecaller: ["leads", "chat"],
   front_desk: ["leads", "chat"],
   application_team: ["students", "documents", "applications", "chat"],
-  admission_team: ["students", "documents", "admissions", "chat"],
+  admission_team: ["students", "documents", "admissions", "chat", "commission"],
   visa_team: ["students", "documents", "visa", "chat"],
 };
 
@@ -224,6 +228,7 @@ export const ALL_PERMISSIONS: { key: Permission; label: string; description: str
   { key: "users",         label: "User Management",   description: "Create & manage team accounts" },
   { key: "activity_logs", label: "Activity Logs",     description: "Full audit trail of all actions" },
   { key: "settings",      label: "Settings",          description: "System-wide configuration" },
+  { key: "commission",    label: "Commission",        description: "Record partner commissions by destination" },
 ];
 
 // ─── Settings sub-permissions (which tabs inside Settings a user can access) ─
@@ -235,6 +240,7 @@ export const SETTINGS_SUB_PERMISSIONS: { key: string; label: string; tabId: stri
   { key: "settings:modules",    label: "Module Toggles",       tabId: "modules" },
   { key: "settings:email",      label: "Email & SMTP",         tabId: "email" },
   { key: "settings:checklists", label: "Document Checklists",  tabId: "checklists" },
+  { key: "settings:team",       label: "Roles & telecaller",   tabId: "team" },
 ];
 
 export const ALL_SETTINGS_SUB_KEYS = SETTINGS_SUB_PERMISSIONS.map((s) => s.key);

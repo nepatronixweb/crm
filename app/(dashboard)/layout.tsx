@@ -6,7 +6,7 @@ import { hasPermission, getRoleLabel, formatDateTime } from "@/lib/utils";
 import {
   LayoutDashboard, Users, UserCheck, FileText, FolderOpen,
   GraduationCap, Plane, BarChart3, Settings, Building2,
-  ScrollText, LogOut, Menu, X, Bell, MessageCircle,
+  ScrollText, LogOut, Menu, X, Bell, MessageCircle, Banknote,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { UserRole } from "@/types";
@@ -37,6 +37,7 @@ const navItems = [
   { href: "/documents", label: "Documents", icon: FolderOpen, module: "documents" },
   { href: "/applications", label: "Applications", icon: FileText, module: "applications" },
   { href: "/admissions", label: "Admissions", icon: GraduationCap, module: "admissions" },
+  { href: "/commission", label: "Commission", icon: Banknote, module: "commission" },
   { href: "/visa", label: "Visa", icon: Plane, module: "visa" },
   { href: "/chat", label: "Chat", icon: MessageCircle, module: "chat" },
   { href: "/reports", label: "Analytics", icon: BarChart3, module: "analytics" },

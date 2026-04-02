@@ -485,8 +485,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const canNote = ["super_admin", "counsellor", "application_team", "admission_team", "visa_team"].includes(role);
   const canStage = ["super_admin", "counsellor", "application_team", "admission_team", "visa_team"].includes(role);
   const canEnroll = ["super_admin", "application_team", "counsellor"].includes(role);
-  const canAdmission = ["super_admin", "admission_team"].includes(role);
-  const canToggleAdmission = canAdmission;
+  /** Application, visa, and admission teams can view and edit admission details (same capabilities). */
+  const canViewAdmission = ["super_admin", "admission_team", "application_team", "visa_team"].includes(role);
+  const canEditAdmission = canViewAdmission;
   const canVisa = ["super_admin", "visa_team"].includes(role);
   const filteredDocs = docs.filter((doc) => !selectedCountry || doc.country === selectedCountry);
 
@@ -590,20 +591,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             )}
           </div>
 
-          {(canAdmission || canToggleAdmission) && (
+          {canViewAdmission && (
             <div className="bg-white rounded-xl border border-gray-100 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-gray-900 flex items-center gap-2">
                   <GraduationCap size={16} /> Admission Details
                 </h2>
-                {!showAdmissionForm && canAdmission && (
+                {!showAdmissionForm && canEditAdmission && (
                   <button onClick={() => setShowAdmissionForm(true)} className="text-blue-600 text-xs flex items-center gap-1 hover:underline">
                     <Plus size={12} /> Add Entry
                   </button>
                 )}
               </div>
 
-              {showAdmissionForm && (
+              {showAdmissionForm && canEditAdmission && (
                 <div className="bg-white rounded-2xl border border-blue-100 shadow-md mb-6 overflow-hidden">
                   {/* Form Header */}
                   <div className="px-6 py-4 bg-linear-to-r from-blue-600 to-indigo-600 flex items-center justify-between">
@@ -1018,7 +1019,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
               <div className="space-y-3">
                 {student.admissionDetails?.map((entry, index) => (
                   <div key={entry._id ?? index} className={`p-4 rounded-xl border transition-all duration-300 ${entry.closed ? "bg-gray-100 border-gray-300" : "bg-gray-50 border-gray-100"}`}>
-                    {editingAdmission === index ? (
+                    {canEditAdmission && editingAdmission === index ? (
                       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                         {/* Form header */}
                         <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center gap-3">
@@ -1369,7 +1370,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
-                            {canToggleAdmission && (
+                            {canEditAdmission && (
                               <button
                                 onClick={() => toggleAdmissionClosed(index)}
                                 className={`p-1.5 rounded-md transition-colors ${entry.closed ? "text-green-600 hover:bg-green-50" : "text-orange-400 hover:bg-orange-50"}`}
@@ -1378,7 +1379,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 {entry.closed ? <Unlock size={13} /> : <Lock size={13} />}
                               </button>
                             )}
-                            {canAdmission && !entry.closed && (
+                            {canEditAdmission && !entry.closed && (
                               <>
                                 <button
                                   onClick={() => {
@@ -1467,7 +1468,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               {/* STAGE */}
                               <div>
                                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Stage</p>
-                                {canAdmission ? (
+                                {canEditAdmission ? (
                                   <select
                                     value={entry.stage || ""}
                                     onChange={(e) => quickUpdateAdmission(index, "stage", e.target.value)}
@@ -1485,7 +1486,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               {/* REMARKS */}
                               <div>
                                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Remarks</p>
-                                {canAdmission ? (
+                                {canEditAdmission ? (
                                   <select
                                     value={entry.remarks || ""}
                                     onChange={(e) => quickUpdateAdmission(index, "remarks", e.target.value)}
@@ -1503,7 +1504,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               {/* STANDING */}
                               <div>
                                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Standing</p>
-                                {canAdmission ? (
+                                {canEditAdmission ? (
                                   <select
                                     value={entry.standing || ""}
                                     onChange={(e) => quickUpdateAdmission(index, "standing", e.target.value)}
@@ -1544,7 +1545,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                               {/* STATUS DATE */}
                               <div>
                                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 text-center">Status Date</p>
-                                {canAdmission ? (
+                                {canEditAdmission ? (
                                   <input
                                     type="date"
                                     value={entry.statusDate ? entry.statusDate.split("T")[0] : ""}
@@ -1561,7 +1562,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                           </div>
 
                           {/* Update button — shown when any field in this row has been changed */}
-                          {canAdmission && dirtyAdmissionRows.has(index) && (
+                          {canEditAdmission && dirtyAdmissionRows.has(index) && (
                             <div className="px-4 pb-3">
                               <button
                                 onClick={() => saveAdmissionRow(index)}

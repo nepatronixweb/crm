@@ -1,11 +1,16 @@
-export type UserRole =
-  | "super_admin"
-  | "counsellor"
-  | "telecaller"
-  | "application_team"
-  | "admission_team"
-  | "visa_team"
-  | "front_desk";
+/** User.role value — core slugs are seeded in AppSettings.applicationRoles; admins may add custom roles in Settings. */
+export type UserRole = string;
+
+/** Built-in role slugs (defaults in database). */
+export const BUILTIN_USER_ROLE_SLUGS = [
+  "super_admin",
+  "counsellor",
+  "telecaller",
+  "application_team",
+  "admission_team",
+  "visa_team",
+  "front_desk",
+] as const;
 
 export type Permission =
   | "leads"
@@ -19,7 +24,8 @@ export type Permission =
   | "users"
   | "settings"
   | "activity_logs"
-  | "chat";
+  | "chat"
+  | "commission";
 
 export type LeadStanding = "warm" | "heated" | "cold" | "missed";
 

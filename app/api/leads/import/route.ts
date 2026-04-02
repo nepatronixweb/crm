@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Lead from "@/models/Lead";
+import Branch from "@/models/Branch";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
 
@@ -44,8 +45,12 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const importTs = importDate ? new Date(importDate) : new Date();
-    const branch   = session.user.branch;
-    const userId   = session.user.id;
+    let branchId = session.user.branch;
+    if (!branchId && session.user.role === "super_admin") {
+      const b = await Branch.findOne().sort({ createdAt: 1 }).select("_id").lean();
+      branchId = b?._id?.toString();
+    }
+    const userId = session.user.id;
 
     // standing/status based on lead type
     const standing = leadType === "cold" ? "cold" : "warm";
@@ -65,13 +70,19 @@ export async function POST(req: NextRequest) {
         importDate:       importTs,
         status,
         standing,
-        branch:           branch || undefined,
+        branch:           branchId || undefined,
         assignedTo:       userId,
         assignedBy:       userId,
       }));
 
     if (docs.length === 0) {
-      return NextResponse.json({ error: "No valid rows with a name found" }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: "No valid rows with a name found",
+          hint: 'Add a header row with a "Name" column (or Full name / Student name). The preview in the modal should show names before importing.',
+        },
+        { status: 400 }
+      );
     }
 
     const inserted = await Lead.insertMany(docs, { ordered: false });

@@ -13,6 +13,15 @@ import {
   FileSpreadsheet, Table2, BarChart3, Globe2, LayoutDashboard,
 } from "lucide-react";
 import { formatDateTime, getStatusColor, hasPermission } from "@/lib/utils";
+import { TELECALLER_FRESH_BUCKET } from "@/lib/telecallerFreshLeads";
+import {
+  TELECALLER_OVERVIEW_APPOINTMENT,
+  TELECALLER_OVERVIEW_CNR,
+  TELECALLER_OVERVIEW_COLD,
+  TELECALLER_OVERVIEW_ONLINE_ENROLLMENT,
+  TELECALLER_OVERVIEW_PHONE_COUNSELLING,
+  TELECALLER_OVERVIEW_TRANSFERRED,
+} from "@/lib/telecallerLeadOverviewBuckets";
 import { IStudent, UserRole } from "@/types";
 import Link from "next/link";
 import { useBranding } from "@/app/branding-context";
@@ -161,6 +170,48 @@ function adminPeriodLabel(period: FilterPeriod, from: string, to: string): strin
   return FILTER_OPTIONS.find((o) => o.value === period)?.label ?? "All time";
 }
 
+/** Match spreadsheet headers after trim + lowercase + collapse spaces / underscores */
+function normalizeImportHeaderKey(k: string): string {
+  return k.trim().toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ");
+}
+
+function normalizeImportRows(rows: Record<string, unknown>[]): Record<string, string>[] {
+  return rows.map((row) => {
+    const out: Record<string, string> = {};
+    Object.keys(row).forEach((k) => {
+      const key = normalizeImportHeaderKey(k);
+      if (!key) return;
+      out[key] = String(row[k] ?? "").trim();
+    });
+    return out;
+  });
+}
+
+function importPickColumn(row: Record<string, string>, ...aliases: string[]): string {
+  for (const a of aliases) {
+    const want = normalizeImportHeaderKey(a);
+    const v = row[want];
+    if (v) return v;
+  }
+  return "";
+}
+
+/** Excel often emits __EMPTY, numeric keys, or A/B column letters when headers are missing */
+function fallbackNameFromGenericColumns(row: Record<string, string>): string {
+  const keys = Object.keys(row);
+  if (keys.length === 0) return "";
+  const generic = (k: string) => {
+    const t = k.trim();
+    return /^__empty/i.test(t) || /^\d+$/.test(t) || /^[A-Z]{1,2}$/i.test(t);
+  };
+  if (!keys.every(generic)) return "";
+  for (const k of keys) {
+    const v = row[k]?.trim();
+    if (v) return v;
+  }
+  return "";
+}
+
 export default function DashboardPage() {
   const { data: session } = useSession();
   const branding = useBranding();
@@ -185,6 +236,60 @@ export default function DashboardPage() {
   // Counsellor: assigned leads
   const [assignedLeads, setAssignedLeads] = useState<IAssignedLead[]>([]);
   const [counsellorStudents, setCounsellorStudents] = useState<IStudent[]>([]);
+
+  /** Telecaller overview card counts — same filters as GET /api/leads?bucket=… (full DB, not first 1000 rows). */
+  const [telecallerOverviewTotals, setTelecallerOverviewTotals] = useState({
+    totalEnquiry: 0,
+    fresh: 0,
+    transferred: 0,
+    appointment: 0,
+    phoneCounselling: 0,
+    onlineEnrollment: 0,
+    cold: 0,
+    cnr: 0,
+  });
+
+  const refreshTelecallerLeads = useCallback(async () => {
+    const json = (path: string) => fetch(path, { cache: "no-store" }).then((r) => r.json());
+    const countTotal = async (bucket?: string) => {
+      const p = new URLSearchParams({ page: "1", limit: "1" });
+      if (bucket) p.set("bucket", bucket);
+      const d = await json(`/api/leads?${p}`);
+      return typeof d?.total === "number" ? d.total : 0;
+    };
+    const [
+      listData,
+      totalEnquiry,
+      fresh,
+      transferred,
+      appointment,
+      phoneCounselling,
+      onlineEnrollment,
+      cold,
+      cnr,
+    ] = await Promise.all([
+      json("/api/leads?page=1&limit=1000"),
+      countTotal(),
+      countTotal(TELECALLER_FRESH_BUCKET),
+      countTotal(TELECALLER_OVERVIEW_TRANSFERRED),
+      countTotal(TELECALLER_OVERVIEW_APPOINTMENT),
+      countTotal(TELECALLER_OVERVIEW_PHONE_COUNSELLING),
+      countTotal(TELECALLER_OVERVIEW_ONLINE_ENROLLMENT),
+      countTotal(TELECALLER_OVERVIEW_COLD),
+      countTotal(TELECALLER_OVERVIEW_CNR),
+    ]);
+    setAssignedLeads(Array.isArray(listData) ? listData : (listData?.leads ?? []));
+    setTelecallerOverviewTotals({
+      totalEnquiry,
+      fresh,
+      transferred,
+      appointment,
+      phoneCounselling,
+      onlineEnrollment,
+      cold,
+      cnr,
+    });
+  }, []);
 
   // Front Desk: stats
   const [fdStats, setFdStats] = useState({ totalLeads: 0, convertedToStudent: 0, enrolledStudents: 0 });
@@ -218,6 +323,7 @@ export default function DashboardPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const importInFlightRef = useRef(false);
 
   // Celebration overlay for new assignments
   const [showCelebration, setShowCelebration] = useState(false);
@@ -320,16 +426,13 @@ export default function DashboardPage() {
         })
         .catch(() => setLoading(false));
     } else if (isTelecaller) {
-      fetch("/api/leads?page=1&limit=1000").then(r => r.json())
-        .then((d) => {
-          setAssignedLeads(Array.isArray(d) ? d : (d?.leads ?? []));
-          setLoading(false);
-        })
+      refreshTelecallerLeads()
+        .then(() => setLoading(false))
         .catch(() => setLoading(false));
     } else {
       setTimeout(() => setLoading(false), 0);
     }
-  }, [isAdmin, isCounsellor, isFrontDesk, isAdmissionTeam, isTelecaller, filterPeriod, filterDateFrom, filterDateTo]);
+  }, [isAdmin, isCounsellor, isFrontDesk, isAdmissionTeam, isTelecaller, filterPeriod, filterDateFrom, filterDateTo, refreshTelecallerLeads]);
 
   // Trigger celebration when unread assignment notifications arrive
   useEffect(() => {
@@ -374,14 +477,8 @@ export default function DashboardPage() {
         const data = evt.target?.result;
         const wb = XLSX.read(data, { type: "binary" });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
-        // Normalize column headers: trim + lowercase for matching
-        const normalized = rows.map((row) => {
-          const out: Record<string, string> = {};
-          Object.keys(row).forEach((k) => { out[k.trim()] = String(row[k] ?? "").trim(); });
-          return out;
-        });
-        setImportPreview(normalized);
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+        setImportPreview(normalizeImportRows(rows));
       } catch {
         setImportResult({ type: "error", msg: "Could not parse the file. Make sure it's a valid .csv or .xlsx." });
       }
@@ -389,28 +486,57 @@ export default function DashboardPage() {
     reader.readAsBinaryString(file);
   };
 
-  // ── Column name aliases ──
-  const colAlias = (row: Record<string, string>, ...keys: string[]) => {
-    for (const k of keys) {
-      const found = Object.keys(row).find((c) => c.toLowerCase() === k.toLowerCase());
-      if (found) return row[found] ?? "";
-    }
-    return "";
-  };
-
   const handleImport = async () => {
     if (!importCampaign.trim()) { setImportResult({ type: "error", msg: "Campaign name is required." }); return; }
     if (!importSource) { setImportResult({ type: "error", msg: "Source is required." }); return; }
     if (importPreview.length === 0) { setImportResult({ type: "error", msg: "Please select a file first." }); return; }
+    if (importInFlightRef.current) return;
+    importInFlightRef.current = true;
     setImportLoading(true);
     setImportResult(null);
-    const rows = importPreview.map((r) => ({
-      name:              colAlias(r, "name","full name","student name","fullname"),
-      phone:             colAlias(r, "phone","mobile","contact","phone number","mobile number"),
-      email:             colAlias(r, "email","email address","mail"),
-      interestedCountry: colAlias(r, "country","interested country","destination","interestedcountry"),
-      comments:          colAlias(r, "comments","comment","notes","note","remarks","remark"),
-    }));
+    const rows = importPreview.map((r) => {
+      const fromAliases = importPickColumn(
+        r,
+        "name",
+        "full name",
+        "student name",
+        "lead name",
+        "contact name",
+        "customer name",
+        "applicant",
+        "applicant name",
+        "candidate",
+        "candidate name",
+        "fullname",
+        "name of student",
+      );
+      const name = fromAliases.trim() || fallbackNameFromGenericColumns(r);
+      return {
+        name,
+        phone: importPickColumn(
+          r,
+          "phone",
+          "mobile",
+          "contact",
+          "phone number",
+          "mobile number",
+          "tel",
+          "cell",
+          "whatsapp",
+          "whatsapp number",
+        ),
+        email: importPickColumn(r, "email", "email address", "mail", "e mail"),
+        interestedCountry: importPickColumn(
+          r,
+          "country",
+          "interested country",
+          "destination",
+          "interestedcountry",
+          "preferred country",
+        ),
+        comments: importPickColumn(r, "comments", "comment", "notes", "note", "remarks", "remark"),
+      };
+    });
     try {
       const res = await fetch("/api/leads/import", {
         method: "POST",
@@ -425,15 +551,18 @@ export default function DashboardPage() {
         setImportCampaign("");
         setImportLeadType("fresh");
         if (importFileRef.current) importFileRef.current.value = "";
-        // Refresh telecaller leads
-        fetch("/api/leads?page=1&limit=1000").then(r => r.json())
-          .then(data => setAssignedLeads(Array.isArray(data) ? data : (data?.leads ?? [])));
+        void refreshTelecallerLeads();
       } else {
-        setImportResult({ type: "error", msg: d.error || "Import failed." });
+        const hint = typeof d?.hint === "string" ? d.hint : "";
+        setImportResult({
+          type: "error",
+          msg: [d.error, hint].filter(Boolean).join(" — ") || "Import failed.",
+        });
       }
     } catch {
       setImportResult({ type: "error", msg: "Network error. Please try again." });
     } finally {
+      importInFlightRef.current = false;
       setImportLoading(false);
     }
   };
@@ -1767,16 +1896,7 @@ export default function DashboardPage() {
           {isTelecaller && (() => {
             const today = new Date().toDateString();
             const leads = assignedLeads;
-            const total = leads.length;
-
-            // Status-based counts
-            const freshLeads       = leads.filter(l => ["Open/Unassigned","Interested","AP-Interested","FD-Interested","In-Progress","AP-Pending"].includes(l.status ?? "")).length;
-            const transferred      = leads.filter(l => ["Assigned","Counselling","Counselled","Qualified Lead"].includes(l.status ?? "")).length;
-            const phoneCounselling = leads.filter(l => ["Phone Counselling","Counselled"].includes(l.status ?? "")).length;
-            const onlineEnrollment = leads.filter(l => l.status === "Registered/Completed").length;
-            const cold             = leads.filter(l => l.standing === "cold" || ["AP-Not Interested","Not Interested","Not Qualified","Dead/Junk Lead","FD-Junk","Closed Lost"].includes(l.status ?? "")).length;
-            const cnrEngaged       = leads.filter(l => ["AP-Call Not Received","Not Answering","AP-Call Back Later"].includes(l.status ?? "")).length;
-            const appointmentBooked= leads.filter(l => l.status === "Counselling").length;
+            const ot = telecallerOverviewTotals;
 
             // Today's performance (from statusDates or updatedAt)
             const callsMadeToday = leads.filter(l => {
@@ -1881,17 +2001,17 @@ export default function DashboardPage() {
                 <div>
                   <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Lead overview</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {[
-                      { label: "Total enquiry", value: total, icon: Users, sub: "All assigned leads" },
-                      { label: "Fresh leads", value: freshLeads, icon: UserPlus, sub: "New & pending contact" },
-                      { label: "Transferred", value: transferred, icon: RefreshCw, sub: "Moved to counsellor" },
-                      { label: "Appointment", value: appointmentBooked, icon: CalendarCheck, sub: "Counselling scheduled" },
-                    ].map((s) => {
+                    {([
+                      { label: "Total enquiry", value: ot.totalEnquiry, icon: Users, sub: "All assigned leads", href: "/leads" as const },
+                      { label: "Fresh leads", value: ot.fresh, icon: UserPlus, sub: "New & pending contact", href: `/leads?bucket=${TELECALLER_FRESH_BUCKET}` as const },
+                      { label: "Transferred", value: ot.transferred, icon: RefreshCw, sub: "Moved to counsellor", href: `/leads?bucket=${TELECALLER_OVERVIEW_TRANSFERRED}` as const },
+                      { label: "Appointment", value: ot.appointment, icon: CalendarCheck, sub: "Counselling scheduled", href: `/leads?bucket=${TELECALLER_OVERVIEW_APPOINTMENT}` as const },
+                    ] as const).map((s) => {
                       const Icon = s.icon;
                       return (
                         <Link
                           key={s.label}
-                          href="/leads"
+                          href={s.href}
                           className="bg-white border border-gray-200 rounded-lg p-5 hover:border-gray-300 hover:shadow-sm transition-all"
                         >
                           <div className="flex items-center justify-between mb-3">
@@ -1909,16 +2029,16 @@ export default function DashboardPage() {
                 {/* Secondary metrics */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { label: "Phone counselling", value: phoneCounselling, icon: PhoneCall, sub: "Counselled over phone" },
-                    { label: "Online enrollment", value: onlineEnrollment, icon: Wifi, sub: "Registered & completed" },
-                    { label: "Cold", value: cold, icon: Flame, sub: "Low interest / cold" },
-                    { label: "CNR / engaged", value: cnrEngaged, icon: PhoneMissed, sub: "Not reachable / busy" },
+                    { label: "Phone counselling", value: ot.phoneCounselling, icon: PhoneCall, sub: "Counselled over phone", href: `/leads?bucket=${TELECALLER_OVERVIEW_PHONE_COUNSELLING}` as const },
+                    { label: "Online enrollment", value: ot.onlineEnrollment, icon: Wifi, sub: "Registered & completed", href: `/leads?bucket=${TELECALLER_OVERVIEW_ONLINE_ENROLLMENT}` as const },
+                    { label: "Cold", value: ot.cold, icon: Flame, sub: "Low interest / cold", href: `/leads?bucket=${TELECALLER_OVERVIEW_COLD}` as const },
+                    { label: "CNR / engaged", value: ot.cnr, icon: PhoneMissed, sub: "Not reachable / busy", href: `/leads?bucket=${TELECALLER_OVERVIEW_CNR}` as const },
                   ].map((s) => {
                     const Icon = s.icon;
                     return (
                       <Link
                         key={s.label}
-                        href="/leads"
+                        href={s.href}
                         className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all flex flex-col gap-3"
                       >
                         <div className="w-8 h-8 rounded-md border border-gray-200 flex items-center justify-center bg-gray-50 text-gray-600">
@@ -1942,7 +2062,7 @@ export default function DashboardPage() {
                         <Users size={14} />
                       </div>
                       <h2 className="text-sm font-semibold text-gray-900">Recent assigned leads</h2>
-                      <span className="text-[11px] font-medium bg-white text-gray-600 px-2 py-0.5 rounded border border-gray-200 tabular-nums">{total}</span>
+                      <span className="text-[11px] font-medium bg-white text-gray-600 px-2 py-0.5 rounded border border-gray-200 tabular-nums">{ot.totalEnquiry}</span>
                     </div>
                     <Link href="/leads" className="text-xs font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1">
                       View all <ChevronRight size={12} />

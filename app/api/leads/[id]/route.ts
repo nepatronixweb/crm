@@ -92,22 +92,42 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const update: Record<string, any> = {};
 
+    const resolveStatusEnteredAt = (): Date | null => {
+      if (typeof body.statusDate === "string" && body.statusDate.trim() !== "") {
+        const d = new Date(body.statusDate.trim());
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    };
+
     // Front desk users: only update status, not stage
     if (session.user.role === "front_desk") {
       if (body.status) {
         update.status = body.status;
-        update[`statusDates.${body.status}`] = new Date();
+        const entered = resolveStatusEnteredAt();
+        if (entered === null && typeof body.statusDate === "string" && body.statusDate.trim() !== "") {
+          return NextResponse.json({ error: "Invalid status date" }, { status: 400 });
+        }
+        update[`statusDates.${body.status}`] = entered ?? new Date();
       }
       // Remove stage if accidentally provided
       if (body.stage) {
         return NextResponse.json({ error: "Front desk users cannot update stage" }, { status: 403 });
       }
     } 
-    // Super admin and counsellors: can update both status and stage
-    else if (session.user.role === "super_admin" || session.user.role === "counsellor") {
+    // Super admin, counsellors, and telecallers: can update both status and stage
+    else if (
+      session.user.role === "super_admin" ||
+      session.user.role === "counsellor" ||
+      session.user.role === "telecaller"
+    ) {
       if (body.status) {
         update.status = body.status;
-        update[`statusDates.${body.status}`] = new Date();
+        const entered = resolveStatusEnteredAt();
+        if (entered === null && typeof body.statusDate === "string" && body.statusDate.trim() !== "") {
+          return NextResponse.json({ error: "Invalid status date" }, { status: 400 });
+        }
+        update[`statusDates.${body.status}`] = entered ?? new Date();
       }
       if (body.stage) {
         update.stage = body.stage;
@@ -134,8 +154,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
+    const oldLead = await Lead.findById(id).select("assignedTo name").lean();
+    const oldAssignedTo = oldLead?.assignedTo?.toString();
+
     const lead = await Lead.findByIdAndUpdate(id, { $set: update }, { new: true });
     if (!lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+
+    const newAssignedTo =
+      body.assignedTo !== undefined && body.assignedTo !== null
+        ? String(body.assignedTo)
+        : undefined;
+    if (newAssignedTo && newAssignedTo !== oldAssignedTo) {
+      const adminIds = await getSuperAdminIds();
+      const recipientIds = [...new Set([newAssignedTo, ...adminIds])];
+      await createNotifications({
+        recipientIds,
+        type: "lead_assigned",
+        title: "Lead Assigned",
+        message: `${session.user.name} assigned lead "${lead.name}" to you`,
+        link: `/leads/${lead._id}`,
+        createdBy: session.user.id,
+      });
+    }
+
     return NextResponse.json(lead);
   } catch (error) {
     console.error("Patch lead error:", error);

@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
+
+/** Leads list must never be served from cache — bucket/status filters must apply per request. */
+export const dynamic = "force-dynamic";
 import Lead from "@/models/Lead";
 import User from "@/models/User";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
 import { createNotifications, getSuperAdminIds } from "@/lib/notifications";
+import { mergeTelecallerFreshLeadFilter, TELECALLER_FRESH_BUCKET } from "@/lib/telecallerFreshLeads";
+import {
+  isTelecallerOverviewDashboardBucket,
+  mergeTelecallerOverviewBucketFilter,
+} from "@/lib/telecallerLeadOverviewBuckets";
 
 export async function GET(req: NextRequest) {
   try {
@@ -58,10 +66,27 @@ export async function GET(req: NextRequest) {
     if (academicYear) filter.academicYear = academicYear;
     if (applyLevel) filter.applyLevel = applyLevel;
     if (fdStatus) filter.status = fdStatus;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let searchOrClause: any[] | undefined;
+    const bucketParamRaw = searchParams.get("bucket");
+    const bucketParam = bucketParamRaw?.trim() || null;
     if (search) {
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(escaped, "i");
-      filter.$or = [{ name: regex }, { phone: regex }, { email: regex }];
+      searchOrClause = [{ name: regex }, { phone: regex }, { email: regex }];
+      const bucketNeedsAndSearch =
+        bucketParam === TELECALLER_FRESH_BUCKET || isTelecallerOverviewDashboardBucket(bucketParam);
+      if (!bucketNeedsAndSearch) {
+        filter.$or = searchOrClause;
+      }
+    }
+
+    if (bucketParam === TELECALLER_FRESH_BUCKET) {
+      mergeTelecallerFreshLeadFilter(filter, searchOrClause);
+    } else if (bucketParam && isTelecallerOverviewDashboardBucket(bucketParam)) {
+      // Apply for any role (counsellor still scoped by assignedTo; telecaller by source).
+      // Do not gate on role — avoids mismatches where the filter was skipped and "all" leads appeared.
+      mergeTelecallerOverviewBucketFilter(filter, bucketParam, searchOrClause);
     }
 
     const skip = (page - 1) * limit;

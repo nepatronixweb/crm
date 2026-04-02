@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import connectDB from "@/lib/mongodb";
 import AppSettings from "@/models/AppSettings";
+import { DEFAULT_APPLICATION_ROLES, normalizeApplicationRoles } from "@/lib/applicationRoles";
+import { DEFAULT_TELECALLER_TRANSFER_OUTCOMES, normalizeTelecallerTransferOutcomes } from "@/lib/telecallerTransferConfig";
 
 // GET — public (used by layout for branding)
 export async function GET() {
@@ -157,6 +159,36 @@ export async function GET() {
       json.countryStages = {};
     }
 
+    if (!Array.isArray(json.applicationRoles) || json.applicationRoles.length === 0) {
+      settings.applicationRoles = DEFAULT_APPLICATION_ROLES.map((r) => ({
+        slug: r.slug,
+        label: r.label,
+        defaultPermissions: [...r.defaultPermissions],
+      }));
+      await settings.save();
+      json.applicationRoles = settings.applicationRoles;
+    }
+    if (!Array.isArray(json.telecallerTransferOutcomes) || json.telecallerTransferOutcomes.length === 0) {
+      settings.telecallerTransferOutcomes = DEFAULT_TELECALLER_TRANSFER_OUTCOMES.map((o) => ({ ...o }));
+      await settings.save();
+      json.telecallerTransferOutcomes = settings.telecallerTransferOutcomes;
+    }
+    json.applicationRoles = normalizeApplicationRoles(json.applicationRoles);
+    json.telecallerTransferOutcomes = normalizeTelecallerTransferOutcomes(json.telecallerTransferOutcomes);
+
+    if (!json.commissionPercentByCountry || typeof json.commissionPercentByCountry !== "object") {
+      settings.commissionPercentByCountry = {};
+      await settings.save();
+      json.commissionPercentByCountry = settings.commissionPercentByCountry ?? {};
+    }
+    const mods = Array.isArray(json.enabledModules) ? [...json.enabledModules] : [];
+    if (!mods.includes("commission")) {
+      mods.push("commission");
+      settings.enabledModules = mods;
+      await settings.save();
+      json.enabledModules = mods;
+    }
+
     return NextResponse.json(json);
   } catch (err) {
     console.error("GET /api/settings/app error:", err);
@@ -185,9 +217,12 @@ export async function PUT(req: NextRequest) {
       "b2bNames", "remarkOptions",
       "countries", "services", "courses", "educationLevels",
       "enabledModules",
+      "commissionPercentByCountry",
       "smtpHost", "smtpPort", "smtpUser", "smtpPass", "emailFromName",
       "paymentQrPath",
       "countryStages",
+      "applicationRoles",
+      "telecallerTransferOutcomes",
     ];
     for (const field of fields) {
       if (body[field] !== undefined) {

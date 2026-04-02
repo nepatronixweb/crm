@@ -7,8 +7,13 @@ import {
   Users, Tag, List, ToggleLeft, ToggleRight, Server,
   FileText, Image as ImageIcon, ChevronRight, X,
   Flame, Zap, Target, Layers, GitBranch, GraduationCap, ChevronDown, Pencil,
+  UserCog,
 } from "lucide-react";
 import { useBrandingRefresh } from "@/app/branding-context";
+import { ALL_PERMISSIONS, SETTINGS_SUB_PERMISSIONS } from "@/lib/utils";
+import { DEFAULT_APPLICATION_ROLES } from "@/lib/applicationRoles";
+import { DEFAULT_TELECALLER_TRANSFER_OUTCOMES } from "@/lib/telecallerTransferConfig";
+import type { TelecallerTransferOutcome } from "@/types/telecallerTransfer";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface AppSettings {
@@ -42,6 +47,8 @@ interface AppSettings {
   smtpPass: string;
   emailFromName: string;
   paymentQrPath: string;
+  applicationRoles: { slug: string; label: string; defaultPermissions: string[] }[];
+  telecallerTransferOutcomes: TelecallerTransferOutcome[];
 }
 
 interface ChecklistItem { name: string; description?: string; isRequired: boolean; }
@@ -54,6 +61,7 @@ const TABS = [
   { id: "lists",       label: "Countries & Services", icon: List },
   { id: "modules",     label: "Module Toggles",       icon: ToggleRight },
   { id: "email",       label: "Email & SMTP",         icon: Mail },
+  { id: "team",        label: "Roles & telecaller",   icon: UserCog },
   { id: "checklists",  label: "Document Checklists",  icon: FileText },
 ] as const;
 
@@ -71,6 +79,7 @@ const ALL_MODULES = [
   { key: "users",         label: "User Management" },
   { key: "activity_logs", label: "Activity Logs" },
   { key: "settings",      label: "Settings" },
+  { key: "commission",    label: "Commission" },
 ];
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -174,13 +183,19 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Visa Assistance","Test Preparation (IELTS/TOEFL)","Scholarship Guidance",
     "Career Counselling","Document Verification",
   ],
-  enabledModules: ["leads","students","documents","applications","admissions","visa","analytics","branches","users","activity_logs","settings"],
+  enabledModules: ["leads","students","documents","applications","admissions","visa","analytics","branches","users","activity_logs","settings","commission"],
   smtpHost: "",
   smtpPort: 587,
   smtpUser: "",
   smtpPass: "",
   emailFromName: "",
   paymentQrPath: "",
+  applicationRoles: DEFAULT_APPLICATION_ROLES.map((r) => ({
+    slug: r.slug,
+    label: r.label,
+    defaultPermissions: [...r.defaultPermissions],
+  })),
+  telecallerTransferOutcomes: DEFAULT_TELECALLER_TRANSFER_OUTCOMES.map((o) => ({ ...o })),
 };
 
 // ─── Tag/Pill List Editor ────────────────────────────────────────────────────
@@ -267,10 +282,10 @@ function SectionCard({ title, description, children }: { title: string; descript
 
 // ─── Input Field ─────────────────────────────────────────────────────────────
 function Field({
-  label, value, onChange, placeholder, type = "text", hint,
+  label, value, onChange, placeholder, type = "text", hint, disabled,
 }: {
   label: string; value: string | number; onChange: (v: string) => void;
-  placeholder?: string; type?: string; hint?: string;
+  placeholder?: string; type?: string; hint?: string; disabled?: boolean;
 }) {
   return (
     <div>
@@ -278,9 +293,10 @@ function Field({
       <input
         type={type}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors"
+        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors disabled:bg-gray-100 disabled:text-gray-500"
       />
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
     </div>
@@ -1553,6 +1569,328 @@ export default function SettingsPage() {
               </p>
             </div>
           </SectionCard>
+          <div className="flex justify-end">
+            <SaveBtn saving={saving} saved={saved} onClick={saveSettings} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: Roles & telecaller outcomes ── */}
+      {activeTab === "team" && (
+        <div className="space-y-5">
+          {!isSuperAdmin && (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <div className="p-1.5 bg-amber-100 rounded-lg shrink-0 mt-0.5">
+                <Lock size={14} className="text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-amber-800">High impact</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Role slugs are stored on user accounts. Changing a slug breaks existing users until you update them. Telecaller transfer options drive the leads table for telecallers; keep outcome IDs stable if you link dashboards or reports to them.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <SectionCard
+            title="Application roles"
+            description="Slugs appear in the database (User.role). Default permissions apply when a user has an empty custom permission list."
+          >
+            <div className="space-y-4">
+              {settings.applicationRoles.map((role, ri) => {
+                const slugLocked = role.slug === "super_admin";
+                const permKeys = [
+                  ...ALL_PERMISSIONS.map((p) => p.key),
+                  ...SETTINGS_SUB_PERMISSIONS.map((p) => p.key),
+                ];
+                return (
+                  <div
+                    key={`${role.slug}-${ri}`}
+                    className="p-4 border border-gray-200 rounded-lg bg-gray-50/50 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-end gap-3 justify-between">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1 min-w-0">
+                        <Field
+                          label="Slug (lowercase, a-z 0-9 _)"
+                          value={role.slug}
+                          disabled={slugLocked}
+                          onChange={(v) => {
+                            const next = [...settings.applicationRoles];
+                            next[ri] = { ...next[ri], slug: v.trim().toLowerCase() };
+                            setSettings((prev) => ({ ...prev, applicationRoles: next }));
+                            setSaved(false);
+                          }}
+                          placeholder="e.g. telecaller"
+                          hint={slugLocked ? "Super Admin slug is fixed" : undefined}
+                        />
+                        <Field
+                          label="Display label"
+                          value={role.label}
+                          onChange={(v) => {
+                            const next = [...settings.applicationRoles];
+                            next[ri] = { ...next[ri], label: v };
+                            setSettings((prev) => ({ ...prev, applicationRoles: next }));
+                            setSaved(false);
+                          }}
+                          placeholder="Shown in UI"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={slugLocked || settings.applicationRoles.length <= 1}
+                        onClick={() => {
+                          setSettings((prev) => ({
+                            ...prev,
+                            applicationRoles: prev.applicationRoles.filter((_, i) => i !== ri),
+                          }));
+                          setSaved(false);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </button>
+                    </div>
+                    {slugLocked && (
+                      <p className="text-[11px] text-gray-500">
+                        Slug field for Super Admin is fixed; you can still edit the label and permissions.
+                      </p>
+                    )}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-2">Default permissions</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                        {permKeys.map((key) => {
+                          const meta =
+                            ALL_PERMISSIONS.find((p) => p.key === key) ||
+                            SETTINGS_SUB_PERMISSIONS.find((p) => p.key === key);
+                          const checked = role.defaultPermissions.includes(key);
+                          return (
+                            <label
+                              key={key}
+                              className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 rounded border-gray-300"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = [...settings.applicationRoles];
+                                  const r = { ...next[ri] };
+                                  const s = new Set(r.defaultPermissions);
+                                  if (s.has(key)) s.delete(key);
+                                  else s.add(key);
+                                  r.defaultPermissions = Array.from(s);
+                                  next[ri] = r;
+                                  setSettings((prev) => ({ ...prev, applicationRoles: next }));
+                                  setSaved(false);
+                                }}
+                              />
+                              <span>
+                                <span className="font-medium">{meta?.label || key}</span>
+                                {meta && "description" in meta && meta.description ? (
+                                  <span className="block text-[10px] text-gray-400 mt-0.5">{meta.description}</span>
+                                ) : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  const n = settings.applicationRoles.length + 1;
+                  setSettings((prev) => ({
+                    ...prev,
+                    applicationRoles: [
+                      ...prev.applicationRoles,
+                      { slug: `custom_role_${n}`, label: "New role", defaultPermissions: [] },
+                    ],
+                  }));
+                  setSaved(false);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                <Plus size={14} />
+                Add role
+              </button>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Telecaller transfer outcomes"
+            description="Options in the telecaller leads table. Effect decides what is PATCHed to the lead (assign counsellor, set FD status, or set standing)."
+          >
+            <div className="space-y-3 overflow-x-auto">
+              <table className="w-full text-xs text-left min-w-[720px]">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-500 uppercase tracking-wide">
+                    <th className="py-2 pr-2 font-semibold">Id</th>
+                    <th className="py-2 pr-2 font-semibold">Label</th>
+                    <th className="py-2 pr-2 font-semibold">Effect</th>
+                    <th className="py-2 pr-2 font-semibold">FD status</th>
+                    <th className="py-2 pr-2 font-semibold">Standing</th>
+                    <th className="py-2 pr-2 font-semibold">Req. counsellor</th>
+                    <th className="py-2 pr-2 font-semibold">Req. date</th>
+                    <th className="py-2 pl-2 font-semibold w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {settings.telecallerTransferOutcomes.map((row, i) => (
+                    <tr key={`${row.id}-${i}`} className="border-b border-gray-100 align-top">
+                      <td className="py-2 pr-2">
+                        <input
+                          value={row.id}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], id: v };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white"
+                        />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input
+                          value={row.label}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], label: v };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white"
+                        />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <select
+                          value={row.effect}
+                          onChange={(e) => {
+                            const effect = e.target.value as TelecallerTransferOutcome["effect"];
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = {
+                              ...next[i],
+                              effect,
+                              fdStatus: effect === "set_standing" ? undefined : next[i].fdStatus,
+                              standing: effect === "set_standing" ? next[i].standing || "cold" : undefined,
+                            };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white"
+                        >
+                          <option value="assign_counsellor">Assign counsellor</option>
+                          <option value="set_status">Set FD status</option>
+                          <option value="set_standing">Set standing</option>
+                        </select>
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input
+                          value={row.fdStatus ?? ""}
+                          disabled={row.effect === "set_standing"}
+                          onChange={(e) => {
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], fdStatus: e.target.value };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white disabled:bg-gray-100"
+                          placeholder="e.g. Assigned"
+                        />
+                      </td>
+                      <td className="py-2 pr-2">
+                        <input
+                          value={row.standing ?? ""}
+                          disabled={row.effect !== "set_standing"}
+                          onChange={(e) => {
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], standing: e.target.value };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded-md bg-white disabled:bg-gray-100"
+                          placeholder="e.g. cold"
+                        />
+                      </td>
+                      <td className="py-2 pr-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={!!row.requiresCounsellor}
+                          onChange={(e) => {
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], requiresCounsellor: e.target.checked };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-2 pr-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={!!row.requiresAppointmentDate}
+                          onChange={(e) => {
+                            const next = [...settings.telecallerTransferOutcomes];
+                            next[i] = { ...next[i], requiresAppointmentDate: e.target.checked };
+                            setSettings((prev) => ({ ...prev, telecallerTransferOutcomes: next }));
+                            setSaved(false);
+                          }}
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-2 pl-2">
+                        <button
+                          type="button"
+                          disabled={settings.telecallerTransferOutcomes.length <= 1}
+                          onClick={() => {
+                            setSettings((prev) => ({
+                              ...prev,
+                              telecallerTransferOutcomes: prev.telecallerTransferOutcomes.filter((_, j) => j !== i),
+                            }));
+                            setSaved(false);
+                          }}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-md disabled:opacity-30"
+                          title="Remove row"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                type="button"
+                onClick={() => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    telecallerTransferOutcomes: [
+                      ...prev.telecallerTransferOutcomes,
+                      {
+                        id: `outcome_${Date.now()}`,
+                        label: "New outcome",
+                        effect: "set_status",
+                        fdStatus: "Interested",
+                        requiresCounsellor: false,
+                        requiresAppointmentDate: false,
+                      },
+                    ],
+                  }));
+                  setSaved(false);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-gray-800 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                <Plus size={14} />
+                Add outcome
+              </button>
+            </div>
+          </SectionCard>
+
           <div className="flex justify-end">
             <SaveBtn saving={saving} saved={saved} onClick={saveSettings} />
           </div>

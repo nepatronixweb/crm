@@ -4,6 +4,8 @@ import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
+import AppSettings from "@/models/AppSettings";
+import { isRoleSlugAllowed, normalizeApplicationRoles } from "@/lib/applicationRoles";
 
 function canManageUsers(session: { user: { role: string; permissions?: string[] } }): boolean {
   if (session.user.role === "super_admin") return true;
@@ -35,6 +37,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     await connectDB();
     const body = await req.json();
+
+    if (body.role !== undefined) {
+      const settingsDoc = await AppSettings.findOne().lean();
+      const roleCatalog = normalizeApplicationRoles(settingsDoc?.applicationRoles);
+      if (!isRoleSlugAllowed(String(body.role), roleCatalog)) {
+        return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+      }
+    }
 
     if (session.user.role !== "super_admin") {
       const target = await User.findById(id).select("role").lean();

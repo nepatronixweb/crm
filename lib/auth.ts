@@ -3,10 +3,23 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
-import { ROLE_DEFAULT_PERMISSIONS } from "@/lib/utils";
-import { UserRole } from "@/types";
-import { checkRateLimit } from "@/lib/rateLimit";
+import AppSettings from "@/models/AppSettings";
+import { normalizeApplicationRoles, resolveDefaultPermissionsForSlug } from "@/lib/applicationRoles";
+import { checkRateLimit, clearRateLimit } from "@/lib/rateLimit";
 import "@/models/Branch"; // register Branch schema for populate
+
+/** Skip login rate limit on local dev (incl. `next start` where NODE_ENV may be production). */
+function shouldSkipLoginRateLimit(): boolean {
+  if (process.env.DISABLE_LOGIN_RATE_LIMIT === "true") return true;
+  if (process.env.NODE_ENV === "development") return true;
+  const base = process.env.NEXTAUTH_URL ?? "";
+  return /localhost|127\.0\.0\.1/i.test(base);
+}
+
+function emailRegexCaseInsensitive(email: string): RegExp {
+  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}$`, "i");
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -19,21 +32,42 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         try {
           if (!credentials?.email || !credentials?.password) return null;
-          // Rate-limit: max 10 login attempts per email address per minute
-          if (!checkRateLimit(`login:${credentials.email.toLowerCase()}`, 10, 60_000)) {
-            throw new Error("Too many login attempts. Please wait a minute and try again.");
-          }
+          const emailInput = credentials.email.trim();
+          const emailKey = `login:${emailInput.toLowerCase()}`;
+          const enforceLoginRateLimit = () => {
+            if (shouldSkipLoginRateLimit()) return;
+            if (!checkRateLimit(emailKey, 10, 60_000)) {
+              throw new Error("Too many login attempts. Please wait a minute and try again.");
+            }
+          };
+
           await connectDB();
-          const user = await User.findOne({ email: credentials.email, isActive: true }).populate("branch");
-          if (!user) return null;
+          const user = await User.findOne({
+            email: emailRegexCaseInsensitive(emailInput),
+            isActive: true,
+          }).populate("branch");
+          if (!user) {
+            enforceLoginRateLimit();
+            return null;
+          }
+          if (typeof user.password !== "string" || !user.password) {
+            enforceLoginRateLimit();
+            return null;
+          }
           const isValid = await bcrypt.compare(credentials.password as string, user.password);
-          if (!isValid) return null;
+          if (!isValid) {
+            enforceLoginRateLimit();
+            return null;
+          }
+
+          clearRateLimit(emailKey);
           const storedPerms: string[] = Array.isArray(user.permissions) ? user.permissions : [];
-          // Fall back to role defaults for users created before the permissions system
+          const settingsRow = await AppSettings.findOne().lean();
+          const roleCatalog = normalizeApplicationRoles(settingsRow?.applicationRoles);
           const permissions: string[] =
             storedPerms.length > 0
               ? storedPerms
-              : (ROLE_DEFAULT_PERMISSIONS[user.role as UserRole] ?? []) as string[];
+              : resolveDefaultPermissionsForSlug(user.role, roleCatalog);
           return {
             id: user._id.toString(),
             name: user.name,
@@ -44,6 +78,9 @@ export const authOptions: NextAuthOptions = {
             branchName: user.branch?.name || "",
           };
         } catch (err) {
+          if (err instanceof Error && err.message.includes("Too many login attempts")) {
+            throw err;
+          }
           console.error("[AUTH] authorize error:", err);
           return null;
         }

@@ -28,3 +28,8 @@ export function checkRateLimit(
   entry.count++;
   return true;
 }
+
+/** Remove a key (e.g. after successful login). */
+export function clearRateLimit(key: string): void {
+  store.delete(key);
+}

@@ -4,6 +4,8 @@ import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
+import AppSettings from "@/models/AppSettings";
+import { isRoleSlugAllowed, normalizeApplicationRoles } from "@/lib/applicationRoles";
 
 function canManageUsers(session: { user: { role: string; permissions?: string[] } }): boolean {
   if (session.user.role === "super_admin") return true;
@@ -50,6 +52,12 @@ export async function POST(req: NextRequest) {
 
     if (role === "super_admin" && session.user.role !== "super_admin") {
       return NextResponse.json({ error: "Only super admins can create super admin accounts" }, { status: 403 });
+    }
+
+    const settingsDoc = await AppSettings.findOne().lean();
+    const roleCatalog = normalizeApplicationRoles(settingsDoc?.applicationRoles);
+    if (!isRoleSlugAllowed(String(role), roleCatalog)) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
     const existing = await User.findOne({ email });

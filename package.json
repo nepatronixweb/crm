@@ -4,10 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "setup:local": "node scripts/setup-local-env.cjs",
+    "local:bootstrap": "npm run setup:local && npx tsx --env-file=.env.local scripts/reset-admin-password.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "seed": "npx tsx --env-file=.env.local scripts/seed.ts",
+    "reset-admin": "npx tsx --env-file=.env.local scripts/reset-admin-password.ts",
     "seed:frontdesk": "npx tsx --env-file=.env.local scripts/seed-frontdesk.ts",
     "db:copy-prod-local": "npx tsx --env-file=.env.local scripts/copy-prod-to-local.ts"
   },

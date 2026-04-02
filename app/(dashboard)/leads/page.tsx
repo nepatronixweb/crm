@@ -1,7 +1,8 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, X, Users, Paperclip, FileText, Trash2, ChevronDown, MessageSquare, MoreVertical, Phone, Mail, Calendar, FileSpreadsheet } from "lucide-react";
 import { formatDate, getStatusColor, COUNTRIES, SERVICES, LEAD_STAGES, LEAD_STAGE_GROUPS, FD_STATUSES, getLeadStageColor, getLeadStageDotColor } from "@/lib/utils";
 
@@ -9,6 +10,17 @@ const DEFAULT_COUNTRIES = COUNTRIES;
 import { ILead, LeadSource, LeadStanding } from "@/types";
 import Link from "next/link";
 import { useBranding } from "@/app/branding-context";
+import { TELECALLER_FRESH_BUCKET } from "@/lib/telecallerFreshLeads";
+import {
+  isTelecallerOverviewDashboardBucket,
+  TELECALLER_OVERVIEW_BUCKET_LABEL,
+} from "@/lib/telecallerLeadOverviewBuckets";
+import {
+  DEFAULT_TELECALLER_TRANSFER_OUTCOMES,
+  normalizeTelecallerTransferOutcomes,
+  buildTelecallerTransferPatchFromOutcome,
+} from "@/lib/telecallerTransferConfig";
+import type { TelecallerTransferOutcome } from "@/types/telecallerTransfer";
 
 const DEFAULT_SOURCES: { value: string; label: string }[] = [
   { value: "walk_in", label: "Walk-in" },
@@ -27,8 +39,22 @@ const FIELD_CLASS =
 
 const LABEL_CLASS = "block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wide";
 
-export default function LeadsPage() {
+function LeadsPageContent() {
   const { data: session } = useSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const bucketFromUrl = searchParams.get("bucket");
+  const isTelecallerFreshView = bucketFromUrl === TELECALLER_FRESH_BUCKET;
+  const isTelecallerOverviewView =
+    session?.user?.role === "telecaller" && isTelecallerOverviewDashboardBucket(bucketFromUrl);
+  const telecallerBucketBanner =
+    session?.user?.role === "telecaller" && (isTelecallerFreshView || isTelecallerOverviewView);
+  const telecallerOverviewLabel =
+    isTelecallerOverviewView && bucketFromUrl
+      ? TELECALLER_OVERVIEW_BUCKET_LABEL[bucketFromUrl]
+      : "";
+  /** Telecaller always uses Transfer + Update (same layout as fresh leads) for every list view. */
+  const isTelecallerTransferTableView = session?.user?.role === "telecaller";
   const branding = useBranding();
   const [leads, setLeads] = useState<ILead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +77,15 @@ export default function LeadsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalLeads, setTotalLeads] = useState(0);
+  const [assignCounsellorForLeadId, setAssignCounsellorForLeadId] = useState<string | null>(null);
+  const [assignCounsellorUserId, setAssignCounsellorUserId] = useState("");
+  const [telecallerFreshTransferChoice, setTelecallerFreshTransferChoice] = useState<Record<string, string>>({});
+  const [telecallerFreshTransferCounsellor, setTelecallerFreshTransferCounsellor] = useState<Record<string, string>>({});
+  const [telecallerTransferAppointmentDate, setTelecallerTransferAppointmentDate] = useState<Record<string, string>>({});
+  const [telecallerFreshTransferUpdatingId, setTelecallerFreshTransferUpdatingId] = useState<string | null>(null);
+  const [telecallerTransferOutcomes, setTelecallerTransferOutcomes] = useState<TelecallerTransferOutcome[]>(
+    () => DEFAULT_TELECALLER_TRANSFER_OUTCOMES.map((o) => ({ ...o }))
+  );
 
   // Dynamic settings from admin
   const [appSources, setAppSources] = useState(DEFAULT_SOURCES);
@@ -92,7 +127,14 @@ export default function LeadsPage() {
     if (filterAcademicYear) params.set("academicYear", filterAcademicYear);
     if (filterApplyLevel) params.set("applyLevel", filterApplyLevel);
     if (filterFdStatus) params.set("status", filterFdStatus);
-    const res = await fetch(`/api/leads?${params}`);
+    const b = searchParams.get("bucket");
+    // Always pass bucket from the URL — do not gate on client session (useSession is often
+    // still loading on first paint). The API only applies telecaller bucket filters when
+    // the authenticated user is a telecaller.
+    if (b === TELECALLER_FRESH_BUCKET || isTelecallerOverviewDashboardBucket(b)) {
+      params.set("bucket", b);
+    }
+    const res = await fetch(`/api/leads?${params}`, { cache: "no-store" });
     const data = await res.json();
     if (data && data.leads) {
       setLeads(data.leads);
@@ -146,13 +188,16 @@ export default function LeadsPage() {
           stages: d.leadStages.filter((s: { group: string }) => s.group === g).map((s: { value: string }) => s.value),
         })));
       }
+      if (Array.isArray(d?.telecallerTransferOutcomes) && d.telecallerTransferOutcomes.length > 0) {
+        setTelecallerTransferOutcomes(normalizeTelecallerTransferOutcomes(d.telecallerTransferOutcomes));
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Refetch leads whenever any filter changes (also fires on initial mount)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchLeads(1); }, [filterStatus, filterCountry, filterAssignedTo, filterSource, filterDateFrom, filterDateTo, filterService, filterLeadStage, filterAcademicYear, filterApplyLevel, filterFdStatus]);
+  useEffect(() => { fetchLeads(1); }, [filterStatus, filterCountry, filterAssignedTo, filterSource, filterDateFrom, filterDateTo, filterService, filterLeadStage, filterAcademicYear, filterApplyLevel, filterFdStatus, searchParams.toString()]);
 
   const clearFilters = () => {
     setFilterStatus("");
@@ -166,21 +211,26 @@ export default function LeadsPage() {
     setFilterAcademicYear("");
     setFilterApplyLevel("");
     setFilterFdStatus("");
+    const b = searchParams.get("bucket");
+    if (b === TELECALLER_FRESH_BUCKET || isTelecallerOverviewDashboardBucket(b)) {
+      router.replace("/leads");
+    }
   };
 
   // exclude stage filter from the count for counsellors since they don't see it
-  const activeFilterCount = [
-    filterStatus,
-    filterCountry,
-    filterAssignedTo,
-    filterSource,
-    filterService,
-    session?.user?.role === "counsellor" ? "" : filterLeadStage,
-    filterDateFrom || filterDateTo,
-    filterAcademicYear,
-    filterApplyLevel,
-    filterFdStatus,
-  ].filter(Boolean).length;
+  const activeFilterCount =
+    [
+      filterStatus,
+      filterCountry,
+      filterAssignedTo,
+      filterSource,
+      filterService,
+      session?.user?.role === "counsellor" ? "" : filterLeadStage,
+      filterDateFrom || filterDateTo,
+      filterAcademicYear,
+      filterApplyLevel,
+      filterFdStatus,
+    ].filter(Boolean).length + (telecallerBucketBanner ? 1 : 0);
 
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -495,11 +545,93 @@ export default function LeadsPage() {
       const ext = l as unknown as { statusDates?: Record<string, string> };
       return { ...l, status: newStatus, statusDates: newStatus ? { ...(ext.statusDates ?? {}), [newStatus]: now } : ext.statusDates } as typeof l;
     }));
-    await fetch(`/api/leads/${leadId}`, {
+    const res = await fetch(`/api/leads/${leadId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });
+    if (!res.ok) fetchLeads(currentPage);
+  };
+
+  const submitTelecallerTransferToCounsellor = async () => {
+    if (!assignCounsellorForLeadId || !assignCounsellorUserId || !session?.user?.id) return;
+    const leadId = assignCounsellorForLeadId;
+    const counsellorId = assignCounsellorUserId;
+    const assignedBy = session.user.id;
+    const counsellor = counsellors.find((c) => c._id === counsellorId);
+    setAssignCounsellorForLeadId(null);
+    setAssignCounsellorUserId("");
+    const now = new Date().toISOString();
+    setLeads((prev) => prev.map((l) => {
+      if (l._id !== leadId) return l;
+      const ext = l as unknown as { statusDates?: Record<string, string> };
+      return {
+        ...l,
+        status: "Assigned",
+        assignedTo: (counsellor
+          ? { _id: counsellor._id, name: counsellor.name }
+          : counsellorId) as ILead["assignedTo"],
+        assignedBy: assignedBy as ILead["assignedBy"],
+        statusDates: { ...(ext.statusDates ?? {}), Assigned: now },
+      } as typeof l;
+    }));
+    const res = await fetch(`/api/leads/${leadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "Assigned",
+        assignedTo: counsellorId,
+        assignedBy,
+      }),
+    });
+    if (!res.ok) fetchLeads(currentPage);
+  };
+
+  const applyTelecallerFreshTransfer = async (leadId: string) => {
+    const raw = telecallerFreshTransferChoice[leadId];
+    if (!raw || !session?.user?.id) return;
+    const outcome = telecallerTransferOutcomes.find((o) => o.id === raw);
+    if (!outcome) return;
+    if (outcome.requiresCounsellor) {
+      const cid = telecallerFreshTransferCounsellor[leadId];
+      if (!cid) return;
+    }
+    if (outcome.requiresAppointmentDate) {
+      const ad = telecallerTransferAppointmentDate[leadId]?.trim();
+      if (!ad) return;
+    }
+    const patch = buildTelecallerTransferPatchFromOutcome(outcome, {
+      counsellorId: telecallerFreshTransferCounsellor[leadId],
+      assignedBy: session.user.id,
+      appointmentDate: telecallerTransferAppointmentDate[leadId],
+    });
+    if (outcome.effect === "assign_counsellor" && !patch.assignedTo) return;
+
+    setTelecallerFreshTransferUpdatingId(leadId);
+    const res = await fetch(`/api/leads/${leadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    setTelecallerFreshTransferUpdatingId(null);
+    if (res.ok) {
+      setTelecallerFreshTransferChoice((p) => {
+        const n = { ...p };
+        delete n[leadId];
+        return n;
+      });
+      setTelecallerFreshTransferCounsellor((p) => {
+        const n = { ...p };
+        delete n[leadId];
+        return n;
+      });
+      setTelecallerTransferAppointmentDate((p) => {
+        const n = { ...p };
+        delete n[leadId];
+        return n;
+      });
+      await fetchLeads(currentPage);
+    }
   };
 
   const formatLeadDateTime = (d: Date | string) => {
@@ -558,12 +690,58 @@ export default function LeadsPage() {
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
 
+      {telecallerBucketBanner && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          <p>
+            <span className="font-semibold">
+              {isTelecallerFreshView ? "Fresh leads" : telecallerOverviewLabel}
+            </span>
+            {isTelecallerFreshView ? (
+              <>
+                {" — "}same list as the telecaller dashboard (new & pending contact only).
+                {loading ? "" : ` ${totalLeads} total.`}
+              </>
+            ) : (
+              <>
+                {" — "}filtered to match this card on your telecaller dashboard.
+                {loading ? "" : ` ${totalLeads} total.`}
+              </>
+            )}
+          </p>
+          <button
+            type="button"
+            onClick={() => router.replace("/leads")}
+            className="shrink-0 rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100"
+          >
+            Show all leads
+          </button>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Leads</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {loading ? "Loading…" : `${filtered.length} of ${leads.length} leads`}
+            {loading
+              ? "Loading…"
+              : isTelecallerFreshView
+                ? (() => {
+                    const t = totalLeads;
+                    const pl = t !== 1 ? "s" : "";
+                    return search.trim()
+                      ? `${filtered.length} of ${t} fresh lead${pl} match search`
+                      : `${t} fresh lead${pl}`;
+                  })()
+                : isTelecallerTransferTableView
+                  ? (() => {
+                      const t = totalLeads;
+                      const pl = t !== 1 ? "s" : "";
+                      return search.trim()
+                        ? `${filtered.length} of ${t} lead${pl} match search`
+                        : `${t} lead${pl}`;
+                    })()
+                  : `${filtered.length} of ${leads.length} leads`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -776,6 +954,7 @@ export default function LeadsPage() {
                   // build headers dynamically; counsellors only see Status (no Stage)
                   const isCounsellor = session?.user?.role === "counsellor";
                   const isFrontDesk = session?.user?.role === "front_desk";
+                  const isTelecaller = session?.user?.role === "telecaller";
                   const headers: string[] = [];
                   if (isAdmin) headers.push(""); // checkbox column
                   headers.push("Lead", "Client", "Services");
@@ -783,6 +962,8 @@ export default function LeadsPage() {
                     headers.push("Status");
                   } else if (isCounsellor) {
                     headers.push("Status");
+                  } else if (isTelecaller) {
+                    headers.push("Transfer");
                   } else if (isAdmin) {
                     headers.push("Status");
                   } else {
@@ -918,8 +1099,103 @@ export default function LeadsPage() {
                       {/* STAGE/STATUS column – hidden for admin */}
                       {!isAdmin && (
                       <td className="px-4 py-3.5 min-w-36">
-                        {(session?.user?.role === "front_desk" || session?.user?.role === "counsellor") ? (
-                          // FD Status column - INTERACTIVE (visible for FD and Counsellors)
+                        {isTelecallerTransferTableView ? (
+                          <div className="flex flex-col gap-2 min-w-48 max-w-56" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={telecallerFreshTransferChoice[lead._id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                const sel = telecallerTransferOutcomes.find((o) => o.id === v);
+                                setTelecallerFreshTransferChoice((prev) => ({ ...prev, [lead._id]: v }));
+                                if (!sel?.requiresCounsellor) {
+                                  setTelecallerFreshTransferCounsellor((prev) => {
+                                    const next = { ...prev };
+                                    delete next[lead._id];
+                                    return next;
+                                  });
+                                }
+                                if (!sel?.requiresAppointmentDate) {
+                                  setTelecallerTransferAppointmentDate((prev) => {
+                                    const next = { ...prev };
+                                    delete next[lead._id];
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 text-gray-800 bg-white focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
+                            >
+                              <option value="">Choose transfer…</option>
+                              {telecallerTransferOutcomes.map((o) => (
+                                <option key={o.id} value={o.id}>{o.label}</option>
+                              ))}
+                            </select>
+                            {(() => {
+                              const sel = telecallerTransferOutcomes.find(
+                                (o) => o.id === telecallerFreshTransferChoice[lead._id]
+                              );
+                              return sel?.requiresCounsellor;
+                            })() && (
+                              <select
+                                value={telecallerFreshTransferCounsellor[lead._id] ?? ""}
+                                onChange={(e) =>
+                                  setTelecallerFreshTransferCounsellor((prev) => ({
+                                    ...prev,
+                                    [lead._id]: e.target.value,
+                                  }))
+                                }
+                                className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 text-gray-800 bg-white focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
+                              >
+                                <option value="">Select counsellor</option>
+                                {counsellors.map((c) => (
+                                  <option key={c._id} value={c._id}>{c.name}</option>
+                                ))}
+                              </select>
+                            )}
+                            {(() => {
+                              const sel = telecallerTransferOutcomes.find(
+                                (o) => o.id === telecallerFreshTransferChoice[lead._id]
+                              );
+                              return sel?.requiresAppointmentDate;
+                            })() && (
+                              <div>
+                                <label className="block text-[10px] font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                                  Appointment date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={telecallerTransferAppointmentDate[lead._id] ?? ""}
+                                  onChange={(e) =>
+                                    setTelecallerTransferAppointmentDate((prev) => ({
+                                      ...prev,
+                                      [lead._id]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 text-gray-800 bg-white focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
+                                />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              disabled={(() => {
+                                const choice = telecallerFreshTransferChoice[lead._id];
+                                const sel = telecallerTransferOutcomes.find((o) => o.id === choice);
+                                return (
+                                  telecallerFreshTransferUpdatingId === lead._id ||
+                                  !choice ||
+                                  !sel ||
+                                  (sel.requiresCounsellor &&
+                                    (!telecallerFreshTransferCounsellor[lead._id] || counsellors.length === 0)) ||
+                                  (sel.requiresAppointmentDate && !telecallerTransferAppointmentDate[lead._id]?.trim())
+                                );
+                              })()}
+                              onClick={() => void applyTelecallerFreshTransfer(lead._id)}
+                              className="w-full text-xs font-semibold px-3 py-2 rounded-md bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {telecallerFreshTransferUpdatingId === lead._id ? "Updating…" : "Update"}
+                            </button>
+                          </div>
+                        ) : (session?.user?.role === "front_desk" || session?.user?.role === "counsellor") ? (
+                          // FD Status column (telecaller uses Transfer column above)
                           (() => {
                             const ext = lead as unknown as { status?: string; statusDates?: Record<string, string> };
                             const leadStatus = ext.status;
@@ -955,7 +1231,15 @@ export default function LeadsPage() {
                                         return (
                                           <button
                                             key={s.value}
-                                            onClick={() => quickUpdateFdStatus(lead._id, s.value)}
+                                            onClick={() => {
+                                              if (session?.user?.role === "telecaller" && s.value === "Assigned") {
+                                                setFdStatusDropdownId(null);
+                                                setAssignCounsellorUserId("");
+                                                setAssignCounsellorForLeadId(lead._id);
+                                                return;
+                                              }
+                                              void quickUpdateFdStatus(lead._id, s.value);
+                                            }}
                                             className={`w-full px-3.5 py-3 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-between group
                                               ${isSelected 
                                                 ? `${bgColor} shadow-md scale-100 ring-2 ring-offset-1` 
@@ -1018,8 +1302,8 @@ export default function LeadsPage() {
                       </td>
                       )}
 
-                      {/* STAGE column - shown for non-FD, non-counsellor users */}
-                      {session?.user?.role !== "front_desk" && session?.user?.role !== "counsellor" && (
+                      {/* STAGE / admin Status column - hidden for FD, counsellors, telecallers (they use Status column above) */}
+                      {session?.user?.role !== "front_desk" && session?.user?.role !== "counsellor" && session?.user?.role !== "telecaller" && (
                       <td className="px-4 py-3.5 min-w-36">
                         {isAdmin ? (
                           // Admin: Status dropdown
@@ -1055,7 +1339,15 @@ export default function LeadsPage() {
                                         return (
                                           <button
                                             key={s.value}
-                                            onClick={() => quickUpdateFdStatus(lead._id, s.value)}
+                                            onClick={() => {
+                                              if (session?.user?.role === "telecaller" && s.value === "Assigned") {
+                                                setFdStatusDropdownId(null);
+                                                setAssignCounsellorUserId("");
+                                                setAssignCounsellorForLeadId(lead._id);
+                                                return;
+                                              }
+                                              void quickUpdateFdStatus(lead._id, s.value);
+                                            }}
                                             className={`w-full px-3.5 py-3 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-between group
                                               ${isSelected 
                                                 ? `${bgColor} shadow-md scale-100 ring-2 ring-offset-1` 
@@ -1242,6 +1534,65 @@ export default function LeadsPage() {
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Telecaller: pick counsellor when transferring (status → Assigned) */}
+      {assignCounsellorForLeadId && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => { setAssignCounsellorForLeadId(null); setAssignCounsellorUserId(""); }}
+          role="presentation"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="transfer-counsellor-title"
+          >
+            <h3 id="transfer-counsellor-title" className="text-base font-semibold text-gray-900">
+              Transfer to counsellor
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">
+              The lead will be set to <span className="font-medium text-gray-700">Assigned</span> and handed to the counsellor you choose.
+            </p>
+            {counsellors.length === 0 ? (
+              <p className="text-sm text-amber-700 mt-4 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                No counsellors are available. Ask an admin to add counsellor users first.
+              </p>
+            ) : (
+              <div className="mt-4">
+                <label className={LABEL_CLASS}>Counsellor</label>
+                <select
+                  value={assignCounsellorUserId}
+                  onChange={(e) => setAssignCounsellorUserId(e.target.value)}
+                  className={FIELD_CLASS}
+                >
+                  <option value="">Select counsellor</option>
+                  {counsellors.map((c) => (
+                    <option key={c._id} value={c._id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                onClick={() => { setAssignCounsellorForLeadId(null); setAssignCounsellorUserId(""); }}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!assignCounsellorUserId || counsellors.length === 0}
+                onClick={() => void submitTelecallerTransferToCounsellor()}
+                className="px-4 py-2 text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                Transfer
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1997,5 +2348,19 @@ export default function LeadsPage() {
         document.body
       )}
     </div>
+  );
+}
+
+export default function LeadsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500">
+          Loading leads…
+        </div>
+      }
+    >
+      <LeadsPageContent />
+    </Suspense>
   );
 }

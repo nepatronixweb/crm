@@ -1,11 +1,9 @@
 import mongoose, { Document, Schema } from "mongoose";
-import { UserRole } from "@/types";
-
 export interface IUserDocument extends Document {
   name: string;
   email: string;
   password: string;
-  role: UserRole;
+  role: string;
   permissions: string[];
   branch: mongoose.Types.ObjectId;
   dateOfBirth?: string;
@@ -24,8 +22,8 @@ const UserSchema = new Schema<IUserDocument>(
     password: { type: String, required: true },
     role: {
       type: String,
-      enum: ["super_admin", "counsellor", "telecaller", "application_team", "admission_team", "visa_team", "front_desk"],
       required: true,
+      trim: true,
     },
     permissions: { type: [String], default: [] },
     branch: { type: Schema.Types.ObjectId, ref: "Branch" },

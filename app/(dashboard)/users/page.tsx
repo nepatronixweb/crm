@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import {
   Plus, Users, Search, KeyRound, X, UserPlus,
@@ -9,13 +9,13 @@ import {
 } from "lucide-react";
 import { formatDate, getRoleBadgeColor, getRoleLabel, ALL_PERMISSIONS, ROLE_DEFAULT_PERMISSIONS, SETTINGS_SUB_PERMISSIONS, ALL_SETTINGS_SUB_KEYS } from "@/lib/utils";
 import { useBranding } from "@/app/branding-context";
-import { UserRole } from "@/types";
+import { DEFAULT_APPLICATION_ROLES } from "@/lib/applicationRoles";
 
 interface User {
   _id: string;
   name: string;
   email: string;
-  role: UserRole;
+  role: string;
   phone?: string;
   dateOfBirth?: string;
   branch: { _id: string; name: string } | null;
@@ -26,19 +26,8 @@ interface User {
   permissions: string[];
 }
 
-const ROLES: UserRole[] = [
-  "counsellor", "telecaller", "front_desk",
-  "application_team", "admission_team", "visa_team", "super_admin",
-];
-
-const emptyForm = {
-  name: "", email: "", password: "", role: "counsellor" as UserRole,
-  branch: "", phone: "", dateOfBirth: "", target: "0",
-  permissions: [...ROLE_DEFAULT_PERMISSIONS["counsellor"]] as string[],
-};
-
-/* ─── Role icon color ─── */
-const roleIconMap: Record<UserRole, string> = {
+/* ─── Role icon color (unknown slugs fall back) ─── */
+const roleIconMap: Record<string, string> = {
   super_admin: "text-red-500",
   counsellor: "text-blue-500",
   telecaller: "text-green-500",
@@ -52,20 +41,75 @@ export default function UsersPage() {
   const { data: session } = useSession();
   const branding = useBranding();
   const isSuperAdmin = session?.user?.role === "super_admin";
-  const availableRoles = isSuperAdmin ? ROLES : ROLES.filter((r) => r !== "super_admin");
+
+  const [applicationRoles, setApplicationRoles] = useState<
+    { slug: string; label: string; defaultPermissions: string[] }[]
+  >(() =>
+    DEFAULT_APPLICATION_ROLES.map((r) => ({
+      slug: r.slug,
+      label: r.label,
+      defaultPermissions: [...r.defaultPermissions],
+    }))
+  );
+
+  const defaultCreatableRole = useMemo(() => {
+    const slugs = applicationRoles.map((r) => r.slug);
+    const visible = isSuperAdmin ? slugs : slugs.filter((s) => s !== "super_admin");
+    return visible[0] ?? "counsellor";
+  }, [applicationRoles, isSuperAdmin]);
+
+  const availableRoles = useMemo(() => {
+    const slugs = applicationRoles.map((r) => r.slug);
+    return isSuperAdmin ? slugs : slugs.filter((s) => s !== "super_admin");
+  }, [applicationRoles, isSuperAdmin]);
+
+  const defaultPermissionsForSlug = useCallback(
+    (slug: string) => {
+      const hit = applicationRoles.find((r) => r.slug === slug);
+      if (hit?.defaultPermissions?.length) return [...hit.defaultPermissions];
+      const legacy = ROLE_DEFAULT_PERMISSIONS[slug as keyof typeof ROLE_DEFAULT_PERMISSIONS];
+      return legacy ? [...legacy] : [];
+    },
+    [applicationRoles]
+  );
+
+  const buildEmptyForm = useCallback(
+    () => ({
+      name: "",
+      email: "",
+      password: "",
+      role: defaultCreatableRole,
+      branch: "",
+      phone: "",
+      dateOfBirth: "",
+      target: "0",
+      permissions: defaultPermissionsForSlug(defaultCreatableRole),
+    }),
+    [defaultCreatableRole, defaultPermissionsForSlug]
+  );
 
   /* ─── State ─── */
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [branches, setBranches] = useState<{ _id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [roleFilter, setRoleFilter] = useState<string | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
   /* form modals */
   const [showForm, setShowForm] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => ({
+    name: "",
+    email: "",
+    password: "",
+    role: "counsellor",
+    branch: "",
+    phone: "",
+    dateOfBirth: "",
+    target: "0",
+    permissions: [...ROLE_DEFAULT_PERMISSIONS.counsellor] as string[],
+  }));
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
@@ -92,7 +136,20 @@ export default function UsersPage() {
   useEffect(() => {
     fetchUsers();
     fetch("/api/branches").then((r) => r.json()).then(setBranches);
+    fetch("/api/settings/app")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d?.applicationRoles) && d.applicationRoles.length > 0) {
+          setApplicationRoles(d.applicationRoles);
+        }
+      });
   }, [fetchUsers]);
+
+  const roleFilterOptions = useMemo(() => {
+    const fromCatalog = applicationRoles.map((r) => r.slug);
+    const fromUsers = [...new Set(users.map((u) => u.role))];
+    return [...new Set([...fromCatalog, ...fromUsers])];
+  }, [applicationRoles, users]);
 
   /* ─── Filtered list ─── */
   const filtered = users.filter((u) => {
@@ -166,9 +223,7 @@ export default function UsersPage() {
       phone: u.phone || "",
       dateOfBirth: u.dateOfBirth || "",
       target: String(u.target || 0),
-      permissions: u.permissions?.length
-        ? [...u.permissions]
-        : [...(ROLE_DEFAULT_PERMISSIONS[u.role] ?? [])] as string[],
+      permissions: u.permissions?.length ? [...u.permissions] : defaultPermissionsForSlug(u.role),
     });
     setFormError("");
     setFormSuccess("");
@@ -178,7 +233,7 @@ export default function UsersPage() {
   const closeForm = () => {
     setShowForm(false);
     setEditUser(null);
-    setForm(emptyForm);
+    setForm(buildEmptyForm());
     setFormError("");
     setFormSuccess("");
   };
@@ -288,11 +343,13 @@ export default function UsersPage() {
         <div className="relative">
           <select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as UserRole | "all")}
+            onChange={(e) => setRoleFilter(e.target.value)}
             className="appearance-none pl-4 pr-9 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 bg-white cursor-pointer"
           >
             <option value="all">All Roles</option>
-            {ROLES.map((r) => <option key={r} value={r}>{getRoleLabel(r)}</option>)}
+            {roleFilterOptions.map((r) => (
+              <option key={r} value={r}>{getRoleLabel(r, applicationRoles)}</option>
+            ))}
           </select>
           <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
         </div>
@@ -350,8 +407,8 @@ export default function UsersPage() {
                   {/* Role */}
                   <td className="px-5 py-3.5">
                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold ${getRoleBadgeColor(user.role)}`}>
-                      <Shield size={11} className={roleIconMap[user.role]} />
-                      {getRoleLabel(user.role)}
+                      <Shield size={11} className={roleIconMap[user.role] ?? "text-gray-500"} />
+                      {getRoleLabel(user.role, applicationRoles)}
                     </span>
                   </td>
                   {/* Branch */}
@@ -534,16 +591,18 @@ export default function UsersPage() {
                     <select
                       required value={form.role}
                       onChange={(e) => {
-                        const newRole = e.target.value as UserRole;
+                        const newRole = e.target.value;
                         setForm({
                           ...form,
                           role: newRole,
-                          permissions: [...(ROLE_DEFAULT_PERMISSIONS[newRole] ?? [])] as string[],
+                          permissions: defaultPermissionsForSlug(newRole),
                         });
                       }}
                       className="appearance-none w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all bg-white cursor-pointer"
                     >
-                      {availableRoles.map((r) => <option key={r} value={r}>{getRoleLabel(r)}</option>)}
+                      {availableRoles.map((r) => (
+                        <option key={r} value={r}>{getRoleLabel(r, applicationRoles)}</option>
+                      ))}
                     </select>
                     <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
