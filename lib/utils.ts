@@ -173,6 +173,7 @@ export const SERVICES = [
 
 export function canAccessModule(role: string, module: string): boolean {
   if (role === "super_admin" || role === "org_admin") return true;
+  if (module === "chat") return true;
   const permissions: Record<string, string[]> = {
     users: ["super_admin"],
     branches: ["super_admin"],
@@ -185,7 +186,16 @@ export function canAccessModule(role: string, module: string): boolean {
     applications: ["super_admin", "application_team", "counsellor"],
     admissions: ["super_admin", "admission_team"],
     visa: ["super_admin", "visa_team"],
-    chat: ["super_admin", "counsellor", "telecaller", "front_desk", "application_team", "admission_team", "visa_team"],
+    chat: [
+      "super_admin",
+      "counsellor",
+      "telecaller",
+      "front_desk",
+      "application_team",
+      "admission_team",
+      "visa_team",
+      "account_finance",
+    ],
     commission: ["super_admin", "admission_team", "account_finance"],
     inventory: ["super_admin", "account_finance"],
     hr: ["super_admin", "account_finance"],
@@ -201,6 +211,8 @@ export function hasPermission(
   module: string,
   role?: string
 ): boolean {
+  // Internal chat: every active team account (all rows in Users) may use it; not gated on the Chat permission checkbox.
+  if (module === "chat") return true;
   if (role === "super_admin" || role === "org_admin") return true;
   return permissions.includes(module);
 }
@@ -255,7 +267,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, Permission[]> = {
   admission_team: ["students", "documents", "admissions", "chat", "commission"],
   visa_team: ["students", "documents", "visa", "chat"],
   /** Payroll-related commissions, stock, HR admin, and reporting — no CRM pipelines by default. */
-  account_finance: ["commission", "inventory", "hr", "analytics"],
+  account_finance: ["commission", "inventory", "hr", "analytics", "chat"],
 };
 
 // ─── All available module permissions (used to render checkboxes) ────────────

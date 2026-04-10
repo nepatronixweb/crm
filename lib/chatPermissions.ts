@@ -1,7 +1,7 @@
 import type { Session } from "next-auth";
 import { hasPermission } from "@/lib/utils";
 
-/** True if the session allows internal chat (module permission + role rules in hasPermission). */
+/** True if the signed-in user may use internal chat (all active team accounts; see hasPermission for "chat"). */
 export function userHasChatAccess(session: Session | null): boolean {
   if (!session?.user) return false;
   return hasPermission(
