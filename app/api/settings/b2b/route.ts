@@ -2,17 +2,50 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import connectDB from "@/lib/mongodb";
 import AppSettings from "@/models/AppSettings";
-import { getAppSettingsDocumentForSession } from "@/lib/appSettingsScope";
+import {
+  APP_SETTINGS_PLATFORM_FILTER,
+  getAppSettingsDocumentForSession,
+} from "@/lib/appSettingsScope";
 
 export const dynamic = "force-dynamic";
 
-// GET - return current b2bNames for the signed-in tenant (or platform when no session).
+/** Dedupe case-insensitively; keep org-specific order first, then platform extras. */
+function mergeB2bNameSuggestions(primary: string[], secondary: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of primary) {
+    const n = String(raw ?? "").trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  for (const raw of secondary) {
+    const n = String(raw ?? "").trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
+// GET — b2bNames for autocomplete. Org users merge tenant + platform lists so names
+// saved under super_admin (platform) Settings still appear for admission/application/visa staff.
 export async function GET() {
   try {
     await connectDB();
     const session = await auth();
     const s = await getAppSettingsDocumentForSession(session);
-    return NextResponse.json({ b2bNames: s.b2bNames || [] });
+    const tenantNames = Array.isArray(s.b2bNames) ? s.b2bNames.map((x) => String(x)) : [];
+    if (s.organization) {
+      const plat = await AppSettings.findOne(APP_SETTINGS_PLATFORM_FILTER).select("b2bNames").lean();
+      const platformNames = Array.isArray(plat?.b2bNames) ? plat.b2bNames.map((x) => String(x)) : [];
+      return NextResponse.json({ b2bNames: mergeB2bNameSuggestions(tenantNames, platformNames) });
+    }
+    return NextResponse.json({ b2bNames: tenantNames });
   } catch (err) {
     console.error("GET /api/settings/b2b error:", err);
     return NextResponse.json({ b2bNames: [] });

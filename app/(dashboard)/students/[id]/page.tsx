@@ -651,9 +651,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
   const canNote = ["super_admin", "counsellor", "application_team", "admission_team", "visa_team"].includes(role);
   const canStage = ["super_admin", "counsellor", "application_team", "admission_team", "visa_team"].includes(role);
   const canEnroll = ["super_admin", "application_team", "counsellor"].includes(role);
-  /** Application, visa, and admission teams can view and edit admission details (same capabilities). */
-  const canViewAdmission = ["super_admin", "admission_team", "application_team", "visa_team"].includes(role);
-  const canEditAdmission = canViewAdmission;
+  /** Add/edit admission rows (incl. B2B). Counsellors and front desk see the section read-only so B2B is visible across departments. */
+  const canEditAdmission = ["super_admin", "org_admin", "admission_team", "application_team", "visa_team"].includes(role);
+  const canViewAdmission = canEditAdmission || ["counsellor", "front_desk"].includes(role);
   const canVisa = ["super_admin", "visa_team"].includes(role);
   const isCountryVisaApproved = (country: string) =>
     !!student.countries?.find((c) => c.country === country)?.visaApprovedAt;
