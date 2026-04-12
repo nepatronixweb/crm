@@ -11,7 +11,6 @@ import {
   SERVICES,
   LEAD_STAGES,
   LEAD_STAGE_GROUPS,
-  FD_STATUSES,
   getLeadStageColor,
   getLeadStageDotColor,
   hasModuleAction,
@@ -34,6 +33,10 @@ import {
 } from "@/lib/telecallerTransferConfig";
 import type { TelecallerTransferOutcome } from "@/types/telecallerTransfer";
 import CounselledTimeInline from "@/components/CounselledTimeInline";
+import { fdWorkflowChoicesForPicker } from "@/lib/fdStatusOptions";
+import { useFdStatusOptions } from "@/lib/useFdStatusOptions";
+import { subscribeAppSettingsChanged } from "@/lib/appSettingsSync";
+import { roleCanEditLeadFdStatus } from "@/lib/leadWorkflowStatusRoles";
 
 const DEFAULT_SOURCES: { value: string; label: string }[] = [
   { value: "walk_in", label: "Walk-in" },
@@ -124,6 +127,8 @@ function LeadsPageContent() {
   const [filterFdStatus, setFilterFdStatus] = useState("");
   /** Cascading filter options for the current scope (from GET /api/leads/filter-meta). */
   const [filterFacetMeta, setFilterFacetMeta] = useState<LeadFilterFacetResponse | null>(null);
+  /** Bumps when app settings save so filter facets refetch (e.g. new FD statuses). */
+  const [filterFacetSettingsBump, setFilterFacetSettingsBump] = useState(0);
   /** Narrow lead stages to one pipeline group (UI only; API still uses stage value). */
   const [filterStageGroup, setFilterStageGroup] = useState("");
   const [branches, setBranches] = useState<{ _id: string; name: string }[]>([]);
@@ -146,7 +151,7 @@ function LeadsPageContent() {
   // Dynamic settings from admin
   const [appSources, setAppSources] = useState(DEFAULT_SOURCES);
   const [appStandings, setAppStandings] = useState(DEFAULT_STANDINGS);
-  const [appFdStatuses, setAppFdStatuses] = useState(FD_STATUSES);
+  const appFdStatuses = useFdStatusOptions();
   const [appLeadStages, setAppLeadStages] = useState(LEAD_STAGES);
   const [appStageGroups, setAppStageGroups] = useState(LEAD_STAGE_GROUPS);
   const [appCountries, setAppCountries] = useState<string[]>(DEFAULT_COUNTRIES);
@@ -268,6 +273,7 @@ function LeadsPageContent() {
         ),
       );
     fetch("/api/settings/app").then((r) => r.json()).then((d) => {
+      if (d?.error) return;
       // Load dynamic lead config
       if (d?.leadSources?.length) {
         setAppSources(d.leadSources.map((s: string) => ({
@@ -278,12 +284,6 @@ function LeadsPageContent() {
       if (d?.leadStandings?.length) setAppStandings(d.leadStandings);
       if (d?.countries?.length) {
         setAppCountries(d.countries.map((c: string | { name: string }) => typeof c === "string" ? c : c.name));
-      }
-      if (d?.fdStatuses?.length) {
-        setAppFdStatuses(d.fdStatuses.map((s: string) => {
-          const existing = FD_STATUSES.find(f => f.value === s);
-          return existing || { value: s, label: s, color: "bg-gray-500 text-white" };
-        }));
       }
       if (d?.leadStages?.length) {
         setAppLeadStages(d.leadStages.map((s: { value: string; label: string; group: string }) => {
@@ -308,6 +308,11 @@ function LeadsPageContent() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionStatus]);
+
+  useEffect(() => {
+    const bump = () => setFilterFacetSettingsBump((n) => n + 1);
+    return subscribeAppSettingsChanged(bump);
+  }, []);
 
   // Refetch leads whenever any filter changes (also fires on initial mount)
   useEffect(() => {
@@ -355,7 +360,7 @@ function LeadsPageContent() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [isEnquiriesRoute, search, appendLeadFilterParams]);
+  }, [isEnquiriesRoute, search, appendLeadFilterParams, filterFacetSettingsBump]);
 
   /** Debounced server search: name matches are sorted first on page 1 (see GET /api/leads). */
   const skipSearchEffectOnMount = useRef(true);
@@ -620,7 +625,7 @@ function LeadsPageContent() {
   // counsellors no longer need access to stage controls
   const canUpdateStage = ["super_admin", "org_admin", "telecaller", "application_team", "admission_team", "visa_team"].includes(session?.user?.role || "");
   /** FD workflow status (same column for all roles; edit only where it was supported before). */
-  const canUpdateFdStatus = ["super_admin", "org_admin", "front_desk", "counsellor", "telecaller"].includes(session?.user?.role || "");
+  const canUpdateFdStatus = roleCanEditLeadFdStatus(session?.user?.role);
   const canExport = hasModuleAction(userPermissions, userRole, "leads", "export");
   const isAdmin = isOrgWideAdmin(session?.user?.role);
 
@@ -687,13 +692,6 @@ function LeadsPageContent() {
     const lower = new Set(allow.map((x) => x.toLowerCase()));
     return APPLY_LEVEL_FILTERS.filter((o) => lower.has(o.value.toLowerCase()));
   }, [filterFacetMeta?.applyLevels]);
-
-  const fdStatusOptions = useMemo(() => {
-    const allow = filterFacetMeta?.fdStatuses;
-    if (!allow?.length) return appFdStatuses;
-    const set = new Set(allow);
-    return appFdStatuses.filter((s) => set.has(s.value));
-  }, [appFdStatuses, filterFacetMeta?.fdStatuses]);
 
   const countryFilterOptions = useMemo(() => {
     const allow = filterFacetMeta?.countries;
@@ -1113,11 +1111,11 @@ function LeadsPageContent() {
             <select
               value={filterFdStatus}
               onChange={(e) => setFilterFdStatus(e.target.value)}
-              title="FD workflow statuses in current results"
+              title="Workflow statuses from Settings (same list as the Status column)"
               className="w-full pt-7 pb-2 px-3 bg-transparent text-sm text-gray-700 focus:outline-none focus:bg-gray-50 cursor-pointer appearance-none pr-8"
             >
               <option value="">All statuses</option>
-              {fdStatusOptions.map((s) => (
+              {appFdStatuses.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
@@ -1496,7 +1494,7 @@ function LeadsPageContent() {
                                     <p className="text-xs font-bold text-gray-700 uppercase tracking-widest">Change Status</p>
                                   </div>
                                   <div className="p-3 space-y-1.5">
-                                    {appFdStatuses.map((s) => {
+                                    {fdWorkflowChoicesForPicker(appFdStatuses, leadStatus).map((s) => {
                                       const isSelected = leadStatus === s.value;
                                       const bgColor = s.color;
                                       return (
@@ -2050,7 +2048,7 @@ function LeadsPageContent() {
                         className={FIELD_CLASS}
                       >
                         <option value="">No status</option>
-                        {appFdStatuses.map((s) => (
+                        {fdWorkflowChoicesForPicker(appFdStatuses, form.status).map((s) => (
                           <option key={s.value} value={s.value}>{s.label}</option>
                         ))}
                       </select>

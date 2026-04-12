@@ -4,21 +4,12 @@ import connectDB from "@/lib/mongodb";
 import AppSettings from "@/models/AppSettings";
 import Organization from "@/models/Organization";
 import { DEFAULT_APPLICATION_ROLES } from "@/lib/applicationRoles";
+import { resolveAppSettingsOrganizationId } from "@/lib/resolveAppSettingsOrganizationId";
 
 type AppSettingsDoc = NonNullable<Awaited<ReturnType<typeof AppSettings.findOne>>>;
 
 /** Unique index only applies to real tenant ObjectIds; platform rows use `organization: null`. */
 export const APP_SETTINGS_PLATFORM_FILTER = { organization: null } as const;
-
-function sessionToOrgFilter(session: Session | null): { organization: mongoose.Types.ObjectId | null } {
-  if (!session?.user) return { organization: null };
-  if (session.user.role === "super_admin") return { organization: null };
-  const oid = session.user.organizationId;
-  if (oid && mongoose.Types.ObjectId.isValid(oid)) {
-    return { organization: new mongoose.Types.ObjectId(oid) };
-  }
-  return { organization: null };
-}
 
 /** Backfill `organization: null` on legacy singleton rows (field previously omitted). */
 export async function migrateAppSettingsOrganizationField(): Promise<void> {
@@ -133,20 +124,21 @@ export async function createFreshTrialTenantAppSettings(
 /**
  * Document used for GET backfills and PUT updates.
  * - Logged-out / login page: platform (`organization: null`).
- * - super_admin: platform (ETG master settings).
- * - Other users: their tenant row; created on demand from `Organization` name (schema defaults = fresh lists).
+ * - Logged-in: tenant row when `organizationId` or `branch → organization` resolves; otherwise platform.
  */
 export async function getAppSettingsDocumentForSession(
   session: Session | null
 ): Promise<AppSettingsDoc> {
   await connectDB();
   await migrateAppSettingsOrganizationField();
-  const filter = sessionToOrgFilter(session);
+  const orgId = await resolveAppSettingsOrganizationId(session);
+  const filter =
+    orgId != null ? { organization: orgId } : APP_SETTINGS_PLATFORM_FILTER;
   let doc = await AppSettings.findOne(filter);
-  if (!doc && filter.organization) {
-    const org = await Organization.findById(filter.organization);
+  if (!doc && orgId) {
+    const org = await Organization.findById(orgId);
     if (org) {
-      doc = await createTenantAppSettings(filter.organization, org.name);
+      doc = await createTenantAppSettings(orgId, org.name);
     }
   }
   if (!doc) {

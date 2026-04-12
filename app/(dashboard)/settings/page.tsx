@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { useBrandingRefresh } from "@/app/branding-context";
+import { notifyAppSettingsChanged } from "@/lib/appSettingsSync";
 import { ALL_PERMISSIONS, SETTINGS_SUB_PERMISSIONS, stripModuleGranularKeys, withFullModuleGranular } from "@/lib/utils";
 import {
   audienceSupportsOrderCustomization,
@@ -1337,6 +1338,7 @@ export default function SettingsPage() {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
         refreshBranding();
+        notifyAppSettingsChanged();
       } else {
         const err = await res.json().catch(() => ({}));
         alert(`Failed to save settings: ${err.error || res.status}`);
@@ -1847,7 +1849,7 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── Front Desk Statuses ── */}
-          <SectionCard title="Front Desk Statuses" description="Status labels used by the Front Desk team. Visible in the FD status dropdown on lead detail pages. Drag to reorder.">
+          <SectionCard title="Front Desk Statuses" description="Workflow status labels for every lead (Front Desk, counsellors, telecallers, and pipeline teams). The same list is used on the leads table, lead detail, filters, and reports. Drag to reorder.">
             <div className="space-y-3">
               <DraggableChipList
                 items={settings.fdStatuses}
@@ -1883,7 +1885,7 @@ export default function SettingsPage() {
                 </button>
               </div>
               <p className="text-[11px] text-gray-400 flex items-center gap-1">
-                <Zap size={10} /> {settings.fdStatuses.length} statuses configured. These appear in the Front Desk status dropdown.
+                <Zap size={10} /> {settings.fdStatuses.length} statuses configured. Saved list is used everywhere leads show workflow status.
               </p>
             </div>
           </SectionCard>

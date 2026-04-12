@@ -4,6 +4,7 @@ import Lead from "@/models/Lead";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
 import { createNotifications, getSuperAdminIds } from "@/lib/notifications";
+import { LEAD_PATCH_FD_STATUS_AND_STAGE_ROLES } from "@/lib/leadWorkflowStatusRoles";
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -114,13 +115,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (body.stage) {
         return NextResponse.json({ error: "Front desk users cannot update stage" }, { status: 403 });
       }
-    } 
-    // Super admin, counsellors, and telecallers: can update both status and stage
-    else if (
-      session.user.role === "super_admin" ||
-      session.user.role === "counsellor" ||
-      session.user.role === "telecaller"
-    ) {
+    }
+    // Org admin + pipeline teams + counsellor/telecaller: FD workflow status and stage
+    else if (LEAD_PATCH_FD_STATUS_AND_STAGE_ROLES.has(session.user.role)) {
       if (body.status) {
         update.status = body.status;
         const entered = resolveStatusEnteredAt();
@@ -142,7 +139,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       // Remove status if accidentally provided
       if (body.status) {
-        return NextResponse.json({ error: "Only front desk, counsellors and admin can update status" }, { status: 403 });
+        return NextResponse.json(
+          { error: "Only front desk, org admin, counsellor, telecaller, and pipeline teams can update workflow status" },
+          { status: 403 },
+        );
       }
     }
 

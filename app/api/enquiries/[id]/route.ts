@@ -4,6 +4,7 @@ import Enquiry from "@/models/Enquiry";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
 import { createNotifications, getSuperAdminIds } from "@/lib/notifications";
+import { LEAD_PATCH_FD_STATUS_AND_STAGE_ROLES } from "@/lib/leadWorkflowStatusRoles";
 
 function canAccessEnquiry(
   role: string,
@@ -125,7 +126,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (session.user.role === "super_admin" || session.user.role === "counsellor" || session.user.role === "telecaller") {
+    if (LEAD_PATCH_FD_STATUS_AND_STAGE_ROLES.has(session.user.role)) {
       if (body.status) {
         update.status = body.status;
         const entered = resolveStatusEnteredAt();

@@ -13,6 +13,8 @@ import {
   FileSpreadsheet, Table2, Globe2, GripVertical, LayoutGrid,
 } from "lucide-react";
 import { formatDateTime, getStatusColor, hasPermission } from "@/lib/utils";
+import { useFdStatusOptions } from "@/lib/useFdStatusOptions";
+import { resolveFdStatusPresentation } from "@/lib/fdStatusOptions";
 import {
   buildAdminDashboardChunks,
   flattenAdminDashboardChunksToOrder,
@@ -237,6 +239,7 @@ function fallbackNameFromGenericColumns(row: Record<string, string>): string {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const branding = useBranding();
+  const fdStatusOptions = useFdStatusOptions();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetching, setRefetching] = useState(false);
@@ -1541,11 +1544,17 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                        {lead.status && (
-                          <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded border border-gray-200 bg-white text-gray-600 max-w-[7rem] truncate">
-                            {lead.status}
-                          </span>
-                        )}
+                        {lead.status && (() => {
+                          const { label, colorClass } = resolveFdStatusPresentation(fdStatusOptions, lead.status);
+                          return (
+                            <span
+                              className={`hidden sm:inline text-[10px] px-2 py-0.5 rounded max-w-[7rem] truncate font-medium ${colorClass}`}
+                              title={label}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })()}
                         <CounselledTimeInline statusDates={lead.statusDates} />
                         <span className={`text-xs px-2 py-0.5 rounded-md font-medium border border-transparent ${getStatusColor(lead.standing)}`}>
                           {STATUS_LABELS[lead.standing] ?? lead.standing}
@@ -2541,11 +2550,17 @@ export default function DashboardPage() {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              {lead.status && (
-                                <span className="text-[10px] px-2 py-0.5 rounded border border-gray-200 bg-white text-gray-600 font-medium max-w-28 truncate">
-                                  {lead.status}
-                                </span>
-                              )}
+                              {lead.status && (() => {
+                                const { label, colorClass } = resolveFdStatusPresentation(fdStatusOptions, lead.status);
+                                return (
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded font-medium max-w-28 truncate ${colorClass}`}
+                                    title={label}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })()}
                               <span className={`text-xs px-2 py-0.5 rounded border font-medium ${standingStyle[lead.standing] ?? "bg-gray-50 text-gray-500 border-gray-200"}`}>
                                 {lead.standing}
                               </span>

@@ -6,6 +6,7 @@ import { getAppSettingsDocumentForSession } from "@/lib/appSettingsScope";
 import { DEFAULT_APPLICATION_ROLES, normalizeApplicationRoles } from "@/lib/applicationRoles";
 import { DEFAULT_TELECALLER_TRANSFER_OUTCOMES, normalizeTelecallerTransferOutcomes } from "@/lib/telecallerTransferConfig";
 import { normalizeUniversitiesArray } from "@/lib/countryUniversities";
+import { FD_STATUSES } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -250,6 +251,26 @@ export async function GET() {
       settings.enabledModules = mods;
       await settings.save();
       json.enabledModules = mods;
+    }
+
+    if (!Array.isArray(json.fdStatuses)) {
+      const docArr = Array.isArray(settings.fdStatuses) ? [...settings.fdStatuses] : [];
+      const isPlatform = settings.organization == null;
+      if (docArr.length > 0) {
+        json.fdStatuses = docArr;
+      } else if (isPlatform) {
+        const defaults = FD_STATUSES.map((s) => s.value);
+        settings.fdStatuses = defaults;
+        settings.markModified("fdStatuses");
+        await settings.save();
+        json.fdStatuses = defaults;
+      } else {
+        const minimal = ["Open/Unassigned"];
+        settings.fdStatuses = minimal;
+        settings.markModified("fdStatuses");
+        await settings.save();
+        json.fdStatuses = minimal;
+      }
     }
 
     return NextResponse.json(json);

@@ -29,6 +29,8 @@ import {
   Clock,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
+import { useFdStatusOptions } from "@/lib/useFdStatusOptions";
+import { resolveFdStatusPresentation } from "@/lib/fdStatusOptions";
 
 const GRAY_PALETTE = ["#111827", "#374151", "#6b7280", "#9ca3af", "#d1d5db", "#e5e7eb", "#f3f4f6", "#f9fafb"];
 const CHART_TOOLTIP_STYLE = {
@@ -294,6 +296,7 @@ function BreakdownSection({
 }
 
 export default function ReportsPage() {
+  const fdStatusOptions = useFdStatusOptions();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ from: "", to: "" });
@@ -719,8 +722,17 @@ export default function ReportsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 text-gray-700">{lead.source || "-"}</td>
-                    <td className="px-4 py-2.5 text-gray-700 max-w-[140px] truncate" title={lead.status}>
-                      {lead.status || "-"}
+                    <td className="px-4 py-2.5 max-w-[140px] truncate">
+                      {lead.status ? (() => {
+                        const { label, colorClass } = resolveFdStatusPresentation(fdStatusOptions, lead.status);
+                        return (
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${colorClass}`} title={label}>
+                            {label}
+                          </span>
+                        );
+                      })() : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-gray-700">{humanizeKey(lead.standing)}</td>
                     <td className="px-4 py-2.5 text-gray-700">{lead.interestedCountry || "-"}</td>

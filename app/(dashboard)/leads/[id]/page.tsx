@@ -2,7 +2,7 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { ArrowLeft, UserPlus, MapPin, Phone, Mail, Calendar, Plus, X, GraduationCap, Globe, Trash2, ChevronDown, Users, BookOpen, Home, Award, CreditCard, ClipboardList, Printer, Download, UserCheck } from "lucide-react";
-import { formatDate, formatDateTime, getStatusColor, getRoleLabel, COUNTRIES, LEAD_STAGES, LEAD_STAGE_GROUPS, FD_STATUSES, getLeadStageDotColor } from "@/lib/utils";
+import { formatDate, formatDateTime, getStatusColor, getRoleLabel, COUNTRIES, LEAD_STAGES, LEAD_STAGE_GROUPS, getLeadStageDotColor } from "@/lib/utils";
 import { ILead } from "@/types";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
@@ -10,6 +10,9 @@ import { useBranding } from "@/app/branding-context";
 import { normalizeUniversitiesArray, universityEntryNames } from "@/lib/countryUniversities";
 import { getCounselledEvent } from "@/lib/counselledAt";
 import CounselledClockCard from "@/components/CounselledClockCard";
+import { useFdStatusOptions } from "@/lib/useFdStatusOptions";
+import { fdWorkflowChoicesForPicker } from "@/lib/fdStatusOptions";
+import { roleCanEditLeadFdStatus } from "@/lib/leadWorkflowStatusRoles";
 
 interface CountryEntry {
   country: string;
@@ -39,7 +42,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
   // Dynamic settings state
   const [appStandings, setAppStandings] = useState(["heated", "hot", "warm", "out_of_contact"]);
-  const [appFdStatuses, setAppFdStatuses] = useState(FD_STATUSES);
+  const appFdStatuses = useFdStatusOptions();
   const [appLeadStages, setAppLeadStages] = useState(LEAD_STAGES);
   const [appStageGroups, setAppStageGroups] = useState(LEAD_STAGE_GROUPS);
   const [appCountries, setAppCountries] = useState<AppCountry[]>(COUNTRIES.map(c => ({ name: c, universities: [] })));
@@ -108,6 +111,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     fetch("/api/settings/app", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
+        if (d?.error) return;
         if (d?.leadStandings?.length) setAppStandings(d.leadStandings);
         if (d?.countries?.length) {
           setAppCountries(
@@ -119,14 +123,6 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                     universities: universityEntryNames(normalizeUniversitiesArray(c.universities)),
                   }
             )
-          );
-        }
-        if (d?.fdStatuses?.length) {
-          setAppFdStatuses(
-            d.fdStatuses.map((s: string) => {
-              const existing = FD_STATUSES.find((f) => f.value === s);
-              return existing || { value: s, label: s, color: "bg-gray-500 text-white" };
-            })
           );
         }
         if (d?.leadStages?.length) {
@@ -524,31 +520,39 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               </span>
             </div>
             {(() => {
-              if (session?.user?.role === "front_desk") {
-                const statusVal = (lead as unknown as { status?: string }).status;
-                const statusInfo = appFdStatuses.find((s) => s.value === statusVal);
-                return statusVal ? (
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Status</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusInfo ? statusInfo.color : "bg-gray-100 text-gray-500"}`}>
+              const statusVal = (lead as unknown as { status?: string }).status;
+              const statusInfo = appFdStatuses.find((s) => s.value === statusVal);
+              return (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">Workflow status</p>
+                  {statusVal ? (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusInfo ? statusInfo.color : "bg-gray-100 text-gray-500"}`}
+                    >
                       {statusInfo ? statusInfo.label : statusVal}
                     </span>
-                  </div>
-                ) : null;
-              } else {
+                  ) : (
+                    <p className="text-sm text-gray-300 font-normal">—</p>
+                  )}
+                </div>
+              );
+            })()}
+            {session?.user?.role !== "front_desk" &&
+              (() => {
                 const stageVal = (lead as unknown as { stage?: string }).stage;
                 const stageInfo = appLeadStages.find((s) => s.value === stageVal);
                 return stageVal ? (
                   <div>
                     <p className="text-xs text-gray-400 mb-1">Stage</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${stageInfo ? stageInfo.color : "bg-gray-100 text-gray-500"}`}>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${stageInfo ? stageInfo.color : "bg-gray-100 text-gray-500"}`}
+                    >
                       {stageInfo && <span className={`w-1.5 h-1.5 rounded-full ${getLeadStageDotColor(stageVal)} opacity-70`} />}
                       {stageInfo ? stageInfo.label : stageVal}
                     </span>
                   </div>
                 ) : null;
-              }
-            })()}
+              })()}
             <Field label="Created" value={formatDate(lead.createdAt)} />
             <Field label="Reminders Sent" value={`${lead.remindersCount}/2`} />
             {(lead as unknown as { applyLevel?: string }).applyLevel && (
@@ -753,10 +757,10 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
 
-        {/* Front Desk Status Section */}
-        {session?.user?.role === "front_desk" && (
+        {/* FD workflow status (admin-configured list) — all departments that may edit */}
+        {roleCanEditLeadFdStatus(session?.user?.role) && (
           <div id="fd-status-dropdown" className="no-print px-6 py-5 border-t border-gray-100">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Status</p>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Workflow status</p>
             <div className="relative inline-block w-full">
               <button
                 onClick={() => setShowFdStatusDropdown(!showFdStatusDropdown)}
@@ -780,7 +784,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 <div className="absolute z-50 top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                   <div className="max-h-96 overflow-y-auto p-2">
                     <div className="grid grid-cols-1 gap-2">
-                      {appFdStatuses.map((status) => {
+                      {fdWorkflowChoicesForPicker(appFdStatuses, (lead as unknown as { status?: string }).status).map((status) => {
                         const currentStatus = (lead as unknown as { status?: string }).status;
                         const isActive = currentStatus === status.value;
                         return (
