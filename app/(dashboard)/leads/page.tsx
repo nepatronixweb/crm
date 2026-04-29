@@ -576,6 +576,31 @@ function LeadsPageContent() {
     }));
   };
 
+  const parseApiErrorMessage = async (res: Response): Promise<{ data: unknown; message: string }> => {
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      const msg =
+        (data as { error?: string; message?: string })?.error ||
+        (data as { error?: string; message?: string })?.message ||
+        "";
+      return {
+        data,
+        message: msg || `Request failed (${res.status}). Please try again.`,
+      };
+    }
+
+    const rawText = await res.text();
+    const compact = rawText.replace(/\s+/g, " ").trim();
+    const looksHtml = compact.startsWith("<!DOCTYPE") || compact.startsWith("<html") || compact.startsWith("<");
+    return {
+      data: null,
+      message: looksHtml
+        ? `Server returned an unexpected response (${res.status}). Please refresh and try again.`
+        : compact || `Request failed (${res.status}). Please try again.`,
+    };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
@@ -643,10 +668,11 @@ function LeadsPageContent() {
           body: JSON.stringify(payload),
         });
       }
-      const data = await res.json();
+      const { data, message } = await parseApiErrorMessage(res);
       if (submitSession !== modalSessionRef.current) return;
       if (res.ok) {
-        const leadId = editingLead ? editingLead._id : (data._id || data.lead?._id);
+        const parsed = (data as { _id?: string; lead?: { _id?: string } } | null) ?? null;
+        const leadId = editingLead ? editingLead._id : (parsed?._id || parsed?.lead?._id);
         // Upload attached files one by one via chunked GridFS upload
         if (leadId && attachedFiles.length > 0) {
           const { uploadFile } = await import("@/lib/upload");
@@ -683,7 +709,7 @@ function LeadsPageContent() {
         closeLeadModalInternal(true);
         fetchLeads(nextPage);
       } else {
-        setSubmitError(data?.error || (editingLead ? "Failed to update lead." : "Failed to create lead. Please try again."));
+        setSubmitError(message || (editingLead ? "Failed to update lead." : "Failed to create lead. Please try again."));
       }
     } catch (error) {
       if (submitSession !== modalSessionRef.current) return;

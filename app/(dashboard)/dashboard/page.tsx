@@ -10,7 +10,7 @@ import {
   GraduationCap, Send, ShieldCheck, FileInput, MessageSquare,
   Phone, PhoneMissed, PhoneCall, UserPlus, RefreshCw,
   CalendarCheck, Flame, Wifi, Upload, X, AlertCircle, CheckCircle,
-  FileSpreadsheet, Table2, Globe2, GripVertical, LayoutGrid,
+  FileSpreadsheet, Table2, Globe2, GripVertical, LayoutGrid, Plus,
 } from "lucide-react";
 import { formatDateTime, getStatusColor, hasPermission } from "@/lib/utils";
 import { dateOnlyToAnalyticsFromIso, dateOnlyToAnalyticsToIso } from "@/lib/dateTimeRangeFilterDefaults";
@@ -645,7 +645,10 @@ export default function DashboardPage() {
     reader.onload = (evt) => {
       try {
         const data = evt.target?.result;
-        const wb = XLSX.read(data, { type: "binary" });
+        if (!(data instanceof ArrayBuffer)) {
+          throw new Error("Unsupported file buffer");
+        }
+        const wb = XLSX.read(data, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
         setImportPreview(normalizeImportRows(rows));
@@ -653,7 +656,7 @@ export default function DashboardPage() {
         setImportResult({ type: "error", msg: "Could not parse the file. Make sure it's a valid .csv or .xlsx." });
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleImport = async () => {
@@ -2402,7 +2405,32 @@ export default function DashboardPage() {
                         <Upload size={15} />
                         Import leads
                       </button>
+                      <Link
+                        href="/enquiries"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                      >
+                        <Plus size={15} />
+                        Add enquiry
+                      </Link>
                     </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Link
+                      href="/enquiries"
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-white hover:border-gray-300 transition-colors"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Enquiry Dashboard</p>
+                      <p className="text-sm font-semibold text-gray-900 mt-1">Telecaller Enquiries</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Track and update telecaller enquiry pipeline</p>
+                    </Link>
+                    <Link
+                      href="/leads"
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:bg-white hover:border-gray-300 transition-colors"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Leads Dashboard</p>
+                      <p className="text-sm font-semibold text-gray-900 mt-1">CRM Leads Review</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Open leads list for follow-up and review</p>
+                    </Link>
                   </div>
                 </div>
                     );
@@ -2412,15 +2440,15 @@ export default function DashboardPage() {
                   <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Today&apos;s targets</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {[
-                      { label: "Calls made today", value: callsMadeToday, target: 200, icon: Phone },
-                      { label: "Appointments booked", value: appointmentToday, target: 10, icon: CalendarCheck },
-                      { label: "Phone counselling", value: phoneCounsellingToday, target: 25, icon: PhoneCall },
+                      { label: "Calls made today", value: callsMadeToday, target: 200, icon: Phone, href: "/enquiries" },
+                      { label: "Appointments booked", value: appointmentToday, target: 10, icon: CalendarCheck, href: `/enquiries?bucket=${TELECALLER_OVERVIEW_APPOINTMENT}` },
+                      { label: "Phone counselling", value: phoneCounsellingToday, target: 25, icon: PhoneCall, href: `/enquiries?bucket=${TELECALLER_OVERVIEW_PHONE_COUNSELLING}` },
                     ].map((t) => {
                       const Icon = t.icon;
                       const p = pct(t.value, t.target);
                       const done = p >= 100;
                       return (
-                        <div key={t.label} className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+                        <Link key={t.label} href={t.href} className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:border-gray-300 hover:shadow-md transition-all">
                           <div className="flex items-start justify-between mb-4">
                             <div className="p-2 rounded-md border border-gray-200 bg-gray-50 text-gray-600">
                               <Icon size={18} />
@@ -2444,7 +2472,7 @@ export default function DashboardPage() {
                               : <span className="text-gray-400">{Math.max(0, t.target - t.value)} remaining</span>
                             }
                           </div>
-                        </div>
+                        </Link>
                       );
                     })}
                   </div>
@@ -2453,7 +2481,7 @@ export default function DashboardPage() {
                   } else if (tid === "telecaller_overview_primary" && showDw("telecaller_overview_primary")) {
                     block = (
                 <div>
-                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Lead overview</h2>
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Enquiry / leads overview</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {([
                       { label: "Total enquiry", value: ot.totalEnquiry, icon: Users, sub: "All enquiries (telecaller pool)", href: "/enquiries" as const },

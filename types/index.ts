@@ -94,6 +94,8 @@ export interface IUser {
   email: string;
   password: string;
   role: UserRole;
+  roles?: UserRole[];
+  activeRole?: UserRole;
   permissions: Permission[];
   branch: string;
   dateOfBirth?: string;

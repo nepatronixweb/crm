@@ -52,7 +52,7 @@ function emailRegexCaseInsensitive(email: string): RegExp {
 
 /** Same rules as login: stored permissions if non-empty, else role defaults from AppSettings catalog (tenant or platform). */
 export async function resolvePermissionsForDbUser(
-  user: { permissions?: unknown; role: string },
+  user: { permissions?: unknown; role: string; roles?: unknown },
   options?: { organizationId?: string | null }
 ): Promise<string[]> {
   const storedPerms: string[] = Array.isArray(user.permissions) ? user.permissions : [];
@@ -68,7 +68,29 @@ export async function resolvePermissionsForDbUser(
   }
   const roleCatalog = normalizeApplicationRoles(settingsRow?.applicationRoles);
   if (storedPerms.length > 0) return storedPerms;
-  return resolveDefaultPermissionsForSlug(user.role, roleCatalog);
+  const roleSlugs = Array.isArray(user.roles)
+    ? user.roles.map((r) => String(r).trim()).filter(Boolean)
+    : [];
+  const allRoles = roleSlugs.length > 0 ? roleSlugs : [String(user.role || "").trim()].filter(Boolean);
+  const merged = new Set<string>();
+  for (const slug of allRoles) {
+    for (const p of resolveDefaultPermissionsForSlug(slug, roleCatalog)) merged.add(p);
+  }
+  return Array.from(merged);
+}
+
+function normalizeUserRolesShape(input: { role?: string | null; roles?: unknown; activeRole?: unknown }): {
+  roles: string[];
+  activeRole: string;
+} {
+  const fromArray = Array.isArray(input.roles)
+    ? input.roles.map((r) => String(r).trim()).filter(Boolean)
+    : [];
+  const fromRole = String(input.role ?? "").trim();
+  const merged = Array.from(new Set([...(fromArray.length > 0 ? fromArray : []), ...(fromRole ? [fromRole] : [])]));
+  const activeRaw = String(input.activeRole ?? "").trim();
+  const activeRole = merged.includes(activeRaw) ? activeRaw : merged[0] || fromRole || "";
+  return { roles: merged, activeRole };
 }
 
 type OrgTokenFields = {
@@ -196,9 +218,18 @@ export const authOptions: NextAuthOptions = {
             role: user.role,
             branchId,
           });
-          const permissions = await resolvePermissionsForDbUser(user, {
-            organizationId: orgFields.organizationId,
+          const normalizedRoles = normalizeUserRolesShape({
+            role: user.role,
+            roles: (user as { roles?: unknown }).roles,
+            activeRole: (user as { activeRole?: unknown }).activeRole,
           });
+          const effectiveRole = normalizedRoles.activeRole || user.role;
+          const permissions = await resolvePermissionsForDbUser(
+            { role: user.role, roles: normalizedRoles.roles, permissions: (user as { permissions?: unknown }).permissions },
+            {
+            organizationId: orgFields.organizationId,
+            }
+          );
 
           const uDash = user as unknown as {
             dashboardWidgets?: unknown;
@@ -208,7 +239,9 @@ export const authOptions: NextAuthOptions = {
             id: user._id.toString(),
             name: user.name,
             email: user.email,
-            role: user.role,
+            role: effectiveRole,
+            roles: normalizedRoles.roles,
+            activeRole: effectiveRole,
             permissions,
             branch: branchId ?? "",
             branchName: user.branch?.name || "",
@@ -232,6 +265,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = (user as { role?: string }).role;
+        token.roles = (user as { roles?: string[] }).roles ?? [];
+        token.activeRole = (user as { activeRole?: string }).activeRole ?? (user as { role?: string }).role;
         token.permissions = (user as { permissions?: string[] }).permissions ?? [];
         token.branch = (user as { branch?: string }).branch;
         token.branchName = (user as { branchName?: string }).branchName;
@@ -265,7 +300,7 @@ export const authOptions: NextAuthOptions = {
         try {
           await connectDB();
           const dbUser = await User.findById(userId)
-            .select("permissions role branch dashboardWidgets dashboardWidgetOrder")
+            .select("permissions role roles activeRole branch dashboardWidgets dashboardWidgetOrder")
             .lean();
           const branchId = dbUser?.branch?.toString();
           const orgFields = await resolveOrgSubscriptionForUser({
@@ -273,14 +308,22 @@ export const authOptions: NextAuthOptions = {
             branchId,
           });
           if (dbUser?.role) {
+            const normalizedRoles = normalizeUserRolesShape({
+              role: String(dbUser.role),
+              roles: (dbUser as { roles?: unknown }).roles,
+              activeRole: (dbUser as { activeRole?: unknown }).activeRole,
+            });
             token.permissions = await resolvePermissionsForDbUser(
               {
                 permissions: dbUser.permissions,
                 role: String(dbUser.role),
+                roles: normalizedRoles.roles,
               },
               { organizationId: orgFields.organizationId }
             );
-            token.role = String(dbUser.role);
+            token.roles = normalizedRoles.roles;
+            token.activeRole = normalizedRoles.activeRole || String(dbUser.role);
+            token.role = token.activeRole;
           }
           applyOrgFieldsToToken(token as Record<string, unknown>, orgFields);
           token.dashboardWidgets = dashboardWidgetsFromDoc(
@@ -300,6 +343,8 @@ export const authOptions: NextAuthOptions = {
       if (token) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
+        session.user.roles = (token.roles as string[]) ?? [];
+        session.user.activeRole = (token.activeRole as string) ?? (token.role as string);
         session.user.permissions = (token.permissions as string[]) ?? [];
         session.user.branch = token.branch as string;
         session.user.branchName = token.branchName as string;

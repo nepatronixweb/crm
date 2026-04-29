@@ -37,6 +37,14 @@ function sanitizeDashboardOrder(input: unknown): Record<string, string[]> {
   return o;
 }
 
+function normalizeRolesPayload(rawRoles: unknown, fallbackRole: string): string[] {
+  const arr = Array.isArray(rawRoles)
+    ? rawRoles.map((r) => String(r).trim()).filter(Boolean)
+    : [];
+  const merged = Array.from(new Set([...(arr.length > 0 ? arr : []), fallbackRole].filter(Boolean)));
+  return merged;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -49,7 +57,10 @@ export async function GET(req: NextRequest) {
 
     if (roleFilter === "counsellor") {
       if (session.user.role === "super_admin") {
-        const counsellors = await User.find({ role: "counsellor", isActive: true })
+        const counsellors = await User.find({
+          isActive: true,
+          $or: [{ role: "counsellor" }, { roles: "counsellor" }],
+        })
           .populate("branch", "name")
           .select("_id name email role branch")
           .sort({ name: 1 });
@@ -66,7 +77,13 @@ export async function GET(req: NextRequest) {
       // index is empty (legacy data), resolve counsellors via Branch.organization on lookup.
       if (branchIds.length === 0) {
         const viaOrg = await User.aggregate([
-          { $match: { role: "counsellor", isActive: true, branch: { $exists: true, $ne: null } } },
+          {
+            $match: {
+              isActive: true,
+              branch: { $exists: true, $ne: null },
+              $or: [{ role: "counsellor" }, { roles: "counsellor" }],
+            },
+          },
           {
             $lookup: {
               from: "branches",
@@ -86,8 +103,8 @@ export async function GET(req: NextRequest) {
         const viewerBranch = session.user.branch;
         if (viewerBranch && mongoose.Types.ObjectId.isValid(viewerBranch)) {
           const fallback = await User.find({
-            role: "counsellor",
             isActive: true,
+            $or: [{ role: "counsellor" }, { roles: "counsellor" }],
             branch: new mongoose.Types.ObjectId(viewerBranch),
           })
             .populate("branch", "name")
@@ -100,8 +117,8 @@ export async function GET(req: NextRequest) {
       }
 
       const counsellors = await User.find({
-        role: "counsellor",
         isActive: true,
+        $or: [{ role: "counsellor" }, { roles: "counsellor" }],
         branch: { $in: branchIds },
       })
         .populate("branch", "name")
@@ -141,6 +158,8 @@ export async function POST(req: NextRequest) {
       email,
       password,
       role,
+      roles,
+      activeRole,
       branch,
       dateOfBirth,
       phone,
@@ -180,6 +199,16 @@ export async function POST(req: NextRequest) {
     if (!isRoleSlugAllowed(String(role), roleCatalog)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
+    const normalizedRoles = normalizeRolesPayload(roles, String(role));
+    for (const roleSlug of normalizedRoles) {
+      if (!isRoleSlugAllowed(roleSlug, roleCatalog)) {
+        return NextResponse.json({ error: `Invalid role in roles: ${roleSlug}` }, { status: 400 });
+      }
+    }
+    const normalizedActiveRole =
+      typeof activeRole === "string" && normalizedRoles.includes(activeRole.trim())
+        ? activeRole.trim()
+        : String(role);
 
     const existing = await User.findOne({ email });
     if (existing) return NextResponse.json({ error: "Email already exists" }, { status: 400 });
@@ -204,6 +233,8 @@ export async function POST(req: NextRequest) {
       email,
       password: hashed,
       role,
+      roles: normalizedRoles,
+      activeRole: normalizedActiveRole,
       permissions: Array.isArray(permissions) ? permissions : [],
       branch,
       dateOfBirth,

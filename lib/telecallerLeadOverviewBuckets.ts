@@ -59,16 +59,41 @@ export function mergeTelecallerOverviewBucketFilter(
   let bucketClause: Record<string, unknown>;
   switch (bucket) {
     case TELECALLER_OVERVIEW_TRANSFERRED:
-      bucketClause = { status: { $in: TRANSFERRED_STATUSES } };
+      bucketClause = {
+        $or: [
+          { status: { $in: TRANSFERRED_STATUSES } },
+          { assignedTo: { $exists: true, $ne: null } },
+          { "statusDates.Assigned": { $exists: true } },
+          { "statusDates.Counselling": { $exists: true } },
+          { "statusDates.Counselled": { $exists: true } },
+        ],
+      };
       break;
     case TELECALLER_OVERVIEW_APPOINTMENT:
-      bucketClause = { status: "Counselling" };
+      bucketClause = {
+        $or: [
+          { status: "Counselling" },
+          { "statusDates.Counselling": { $exists: true } },
+        ],
+      };
       break;
     case TELECALLER_OVERVIEW_PHONE_COUNSELLING:
-      bucketClause = { status: { $in: PHONE_COUNSELLING_STATUSES } };
+      bucketClause = {
+        $or: [
+          { status: { $in: PHONE_COUNSELLING_STATUSES } },
+          { "statusDates.Phone Counselling": { $exists: true } },
+          { "statusDates.Counselled": { $exists: true } },
+        ],
+      };
       break;
     case TELECALLER_OVERVIEW_ONLINE_ENROLLMENT:
-      bucketClause = { status: { $in: ["Online Counselling", "Registered/Completed"] } };
+      bucketClause = {
+        $or: [
+          { status: { $in: ["Online Counselling", "Registered/Completed"] } },
+          { "statusDates.Online Counselling": { $exists: true } },
+          { "statusDates.Registered/Completed": { $exists: true } },
+        ],
+      };
       break;
     case TELECALLER_OVERVIEW_COLD:
       bucketClause = {

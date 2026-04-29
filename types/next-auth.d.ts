@@ -7,6 +7,8 @@ declare module "next-auth" {
       name: string;
       email: string;
       role: string;
+      roles: string[];
+      activeRole: string;
       branch: string;
       branchName: string;
       permissions: string[];
@@ -30,6 +32,8 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     hrRole?: "admin" | "employee";
+    roles?: string[];
+    activeRole?: string;
     organizationId?: string | null;
     organizationName?: string | null;
     orgSubscriptionStatus?: string | null;

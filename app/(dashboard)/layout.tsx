@@ -55,10 +55,14 @@ const navItems = [
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const role = session?.user?.role as UserRole;
+  const role = ((session?.user as { activeRole?: string; role?: string } | undefined)?.activeRole || session?.user?.role) as UserRole;
+  const userRoles = Array.isArray((session?.user as { roles?: string[] } | undefined)?.roles)
+    ? (((session?.user as { roles?: string[] }).roles) as string[])
+    : [session?.user?.role].filter(Boolean) as string[];
+  const [switchingRole, setSwitchingRole] = useState(false);
   const branding = useBranding();
 
   // Global module toggles from Settings
@@ -269,6 +273,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     setNotifs((prev) => prev.map((n) => n._id === id ? { ...n, read: true } : n));
     setUnreadCount((c) => { const v = Math.max(0, c - 1); prevUnreadRef.current = v; return v; });
+  };
+
+  const switchRole = async (nextRole: string) => {
+    if (!nextRole || nextRole === role || switchingRole) return;
+    setSwitchingRole(true);
+    try {
+      const res = await fetch("/api/auth/active-role", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activeRole: nextRole }),
+      });
+      if (res.ok) {
+        await update();
+      }
+    } finally {
+      setSwitchingRole(false);
+    }
   };
 
   const userPermissions = (session?.user?.permissions ?? []) as string[];
@@ -484,6 +505,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
 
           <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          {userRoles.length > 1 && (
+            <div className="hidden sm:flex items-center gap-2 mr-1">
+              <label className="text-[11px] text-gray-500">Role</label>
+              <select
+                value={role || ""}
+                onChange={(e) => switchRole(e.target.value)}
+                disabled={switchingRole}
+                className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300"
+                aria-label="Switch active role"
+              >
+                {userRoles.map((r) => (
+                  <option key={r} value={r}>
+                    {getRoleLabel(r)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <HeaderAttendance />
           {canViewHrManagement && (
             <Link
