@@ -11,10 +11,13 @@ import {
   tenantCommissionScopeForSession,
 } from "@/lib/tenantRecordAccess";
 
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-  console.error("MONGODB_URI missing");
-  process.exit(1);
+function requireMongoUri(): string {
+  const uri = process.env.MONGODB_URI?.trim();
+  if (!uri) {
+    console.error("MONGODB_URI missing");
+    process.exit(1);
+  }
+  return uri;
 }
 
 type FakeSession = {
@@ -46,7 +49,7 @@ async function sessionForOrg(orgId: mongoose.Types.ObjectId): Promise<FakeSessio
 }
 
 async function main() {
-  await mongoose.connect(uri);
+  await mongoose.connect(requireMongoUri());
 
   const marker = `Isolation test ${Date.now()}`;
   await Commission.deleteMany({ applicantName: { $regex: /^Isolation test / } });
