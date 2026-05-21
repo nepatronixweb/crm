@@ -8,11 +8,24 @@ if [[ ! -f .env.production ]]; then
   exit 1
 fi
 
-# shellcheck disable=SC2046
-export $(grep -v '^#' .env.production | grep '^MONGODB_URI=' | tail -1 | xargs)
+COUNT=$(grep -c '^MONGODB_URI=' .env.production 2>/dev/null || echo 0)
+if [[ "$COUNT" -ne 1 ]]; then
+  echo "ERROR: expected exactly 1 MONGODB_URI line, found $COUNT"
+  grep '^MONGODB_URI=' .env.production || true
+  exit 1
+fi
 
-if [[ -z "${MONGODB_URI:-}" ]]; then
-  echo "No MONGODB_URI in .env.production"
+MONGODB_URI=$(grep '^MONGODB_URI=' .env.production | cut -d= -f2- | tr -d '\r' | xargs)
+
+if [[ -z "$MONGODB_URI" ]]; then
+  echo "MONGODB_URI is empty"
+  exit 1
+fi
+
+if [[ ! "$MONGODB_URI" =~ ^mongodb(\+srv)?:// ]]; then
+  echo "ERROR: MONGODB_URI must start with mongodb:// or mongodb+srv://"
+  echo "Got: $MONGODB_URI"
+  echo "Fix: run sudo bash scripts/fix-vps-mongo-env.sh"
   exit 1
 fi
 
@@ -21,7 +34,7 @@ echo "$MONGODB_URI" | sed -E 's/:([^:@/]+)@/:***@/'
 
 mongosh "$MONGODB_URI" --eval 'db.runCommand({ ping: 1 })' || {
   echo ""
-  echo "FAILED — fix password, authSource=crm, and remove duplicate MONGODB_URI lines."
+  echo "FAILED — run: sudo bash scripts/fix-vps-mongo-env.sh"
   exit 1
 }
 

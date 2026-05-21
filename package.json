@@ -21,6 +21,7 @@
     "db:drop-legacy-etg-crm": "npx tsx scripts/drop-legacy-etg-crm-db.ts",
     "db:verify-production": "bash scripts/verify-mongodb-production.sh",
     "db:provision-from-etg": "bash scripts/provision-crm-mongodb-from-etg.sh",
+    "db:fix-vps-mongo": "bash scripts/fix-vps-mongo-env.sh",
     "db:nuke-razu-nepatronix": "npx tsx --env-file=.env.local scripts/force-remove-razu-nepatronix.ts",
     "db:nuke-razu-nepatronix:execute": "npx tsx --env-file=.env.local scripts/force-remove-razu-nepatronix.ts --execute"
   },
