@@ -5,24 +5,7 @@ import { auth } from "@/lib/auth";
 import Commission from "@/models/Commission";
 import ActivityLog from "@/models/ActivityLog";
 import { hasPermission } from "@/lib/utils";
-import { getOrgUserIdsForSession, getTenantStudentIdsForSession } from "@/lib/tenantRecordAccess";
-
-async function findCommissionInTenant(
-  session: NonNullable<Awaited<ReturnType<typeof auth>>>,
-  id: string
-) {
-  const doc = await Commission.findById(id).exec();
-  if (!doc) return null;
-  if (session.user.role === "super_admin") return doc;
-  const orgUserIds = await getOrgUserIdsForSession(session);
-  const studentIds = await getTenantStudentIdsForSession(session);
-  const byCreator =
-    orgUserIds?.some((uid) => uid.toString() === String(doc.createdBy)) ?? false;
-  const byStudent =
-    doc.studentId &&
-    (studentIds?.some((sid) => sid.toString() === String(doc.studentId)) ?? false);
-  return byCreator || byStudent ? doc : null;
-}
+import { findCommissionInTenant } from "@/lib/tenantRecordAccess";
 
 function canUseCommission(session: NonNullable<Awaited<ReturnType<typeof auth>>>): boolean {
   if (session.user.role === "super_admin") return true;

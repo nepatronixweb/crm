@@ -6,12 +6,84 @@ import Enquiry from "@/models/Enquiry";
 import User from "@/models/User";
 import StudentDocument from "@/models/Document";
 import Application from "@/models/Application";
+import Commission from "@/models/Commission";
 import {
   tenantBranchScopeForSession,
   isBranchInOrganization,
   isUserInOrganization,
   TENANT_SCOPE_EMPTY_MATCH,
 } from "@/lib/orgUserScope";
+
+/** Pure list filter for commission queries — strict organization match for tenants. */
+export function tenantCommissionMongoFilter(params: {
+  isSuperAdmin: boolean;
+  organizationId: mongoose.Types.ObjectId | null;
+}): Record<string, unknown> {
+  if (params.isSuperAdmin) return {};
+  if (!params.organizationId) return { ...TENANT_SCOPE_EMPTY_MATCH };
+  return { organization: params.organizationId };
+}
+
+/** Mongo filter: tenant users only see commissions owned by their organization. */
+export async function tenantCommissionScopeForSession(
+  session: Session
+): Promise<Record<string, unknown>> {
+  return tenantCommissionMongoFilter({
+    isSuperAdmin: session.user.role === "super_admin",
+    organizationId: organizationIdForSessionCreate(session),
+  });
+}
+
+/**
+ * Stamp `organization` on legacy rows created by this tenant's non-platform users.
+ * Platform `super_admin` rows stay org-less and remain super_admin-only.
+ */
+export async function backfillTenantCommissionOrganizations(session: Session): Promise<void> {
+  if (session.user.role === "super_admin") return;
+  const orgId = organizationIdForSessionCreate(session);
+  if (!orgId) return;
+
+  const orgUserIds = await getOrgUserIdsForSession(session);
+  if (!orgUserIds?.length) return;
+
+  const tenantCreators = (await User.find({
+    _id: { $in: orgUserIds },
+    role: { $ne: "super_admin" },
+  })
+    .distinct("_id")
+    .exec()) as mongoose.Types.ObjectId[];
+
+  if (!tenantCreators.length) return;
+
+  await Commission.updateMany(
+    {
+      $or: [{ organization: null }, { organization: { $exists: false } }],
+      createdBy: { $in: tenantCreators },
+    },
+    { $set: { organization: orgId } }
+  );
+}
+
+export async function findCommissionInTenant(session: Session, id: string) {
+  if (!mongoose.Types.ObjectId.isValid(id)) return null;
+  const doc = await Commission.findById(id).exec();
+  if (!doc) return null;
+  if (session.user.role === "super_admin") return doc;
+
+  const orgId = organizationIdForSessionCreate(session);
+  if (!orgId) return null;
+
+  if (doc.organization) {
+    return doc.organization.toString() === orgId.toString() ? doc : null;
+  }
+
+  const creator = await User.findById(doc.createdBy).select("role branch").lean();
+  if (!creator || creator.role === "super_admin") return null;
+
+  const orgUserIds = await getOrgUserIdsForSession(session);
+  if (!orgUserIds?.some((uid) => uid.toString() === String(doc.createdBy))) return null;
+  return doc;
+}
 
 /** User list filter for the current tenant (User.branch). */
 export async function tenantUserScopeForSession(

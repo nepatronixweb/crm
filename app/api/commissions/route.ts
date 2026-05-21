@@ -4,7 +4,11 @@ import Commission from "@/models/Commission";
 import ActivityLog from "@/models/ActivityLog";
 import { auth } from "@/lib/auth";
 import { hasPermission } from "@/lib/utils";
-import { getOrgUserIdsForSession, organizationIdForSessionCreate } from "@/lib/tenantRecordAccess";
+import {
+  backfillTenantCommissionOrganizations,
+  organizationIdForSessionCreate,
+  tenantCommissionScopeForSession,
+} from "@/lib/tenantRecordAccess";
 
 function canUseCommission(session: NonNullable<Awaited<ReturnType<typeof auth>>>): boolean {
   if (session.user.role === "super_admin") return true;
@@ -18,25 +22,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     await connectDB();
+    await backfillTenantCommissionOrganizations(session);
+
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "30", 10)));
     const skip = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filter: Record<string, any> = {};
-    if (session.user.role !== "super_admin") {
-      const orgId = organizationIdForSessionCreate(session);
-      if (!orgId) {
-        return NextResponse.json({ commissions: [], total: 0, page, pages: 0 });
-      }
-      const orgUserIds = await getOrgUserIdsForSession(session);
-      const orParts: Record<string, unknown>[] = [{ organization: orgId }];
-      if (orgUserIds && orgUserIds.length > 0) {
-        orParts.push({ organization: null, createdBy: { $in: orgUserIds } });
-      }
-      filter.$or = orParts;
-    }
+    const filter = await tenantCommissionScopeForSession(session);
 
     const [rows, total] = await Promise.all([
       Commission.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -58,6 +51,11 @@ export async function POST(req: NextRequest) {
     }
     await connectDB();
     const body = await req.json();
+
+    const organization = organizationIdForSessionCreate(session);
+    if (session.user.role !== "super_admin" && !organization) {
+      return NextResponse.json({ error: "Organization required" }, { status: 403 });
+    }
 
     const doc = await Commission.create({
       destinationCountry: String(body.destinationCountry ?? "").trim(),
@@ -87,7 +85,7 @@ export async function POST(req: NextRequest) {
       commissionAmount: String(body.commissionAmount ?? ""),
       remarksStatus: body.remarksStatus ?? "",
       commissionStatus: body.commissionStatus ?? "",
-      organization: organizationIdForSessionCreate(session),
+      organization,
       createdBy: session.user.id,
       createdByName: session.user.name ?? "",
     });
