@@ -17,13 +17,16 @@ type LoginBranding = {
 };
 
 const DEFAULT_BRANDING: LoginBranding = {
-  companyName: "Education Tree Global",
+  companyName: "Welcome to CRM",
   shortCode: "ETG",
-  tagline: "CRM Portal — Staff Access",
+  tagline: "World most dynamic CRM",
   logoPath: "",
   brandColor: "#2563eb",
   brandSecondaryColor: "#1d4ed8",
 };
+
+const LOGIN_HEADING = "Welcome to CRM";
+const LOGIN_SUBTITLE = "World most dynamic CRM";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -102,8 +105,8 @@ export default function LoginPage() {
                 {branding.shortCode.slice(0, 3)}
               </div>
             )}
-            <h2 className="text-2xl font-bold text-white mb-1">{branding.companyName}</h2>
-            <p className="text-white/70 text-sm">{branding.tagline || "Sign in to access your dashboard"}</p>
+            <h2 className="text-2xl font-bold text-white mb-1">{LOGIN_HEADING}</h2>
+            <p className="text-white/70 text-sm">{LOGIN_SUBTITLE}</p>
           </div>
 
           {error && (
