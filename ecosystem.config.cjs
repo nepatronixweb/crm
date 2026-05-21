@@ -6,7 +6,7 @@
 module.exports = {
   apps: [
     {
-      name: "etg",
+      name: "crm",
       cwd: __dirname,
       script: "node_modules/next/dist/bin/next",
       args: "start",
@@ -15,7 +15,7 @@ module.exports = {
       max_memory_restart: "800M",
       env: {
         NODE_ENV: "production",
-        PORT: "3000",
+        PORT: "3001",
       },
     },
   ],
