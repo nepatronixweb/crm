@@ -4,7 +4,7 @@ require('dotenv').config({ path: '.env.local' });
 async function seedMapping() {
   try {
     console.log('Connecting to MongoDB...');
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/etg-crm');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/crm');
     
     const db = mongoose.connection.db;
     

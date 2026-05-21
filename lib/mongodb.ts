@@ -46,9 +46,14 @@ async function connectDB(): Promise<typeof mongoose> {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    if (process.env.NODE_ENV === "development") {
-      const db = mongoDbNameFromUri(MONGODB_URI);
-      if (db) console.info(`[mongodb] connecting to database: ${db}`);
+    const db = mongoDbNameFromUri(MONGODB_URI);
+    if (db) {
+      console.info(`[mongodb] connecting to database: ${db}`);
+      if (db === "etg-crm") {
+        console.warn(
+          "[mongodb] WARNING: MONGODB_URI points to legacy database etg-crm. Use /crm instead (see .env.local)."
+        );
+      }
     }
     cached.promise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,

@@ -16,6 +16,9 @@
     "reset-admin": "npx tsx --env-file=.env.local scripts/reset-admin-password.ts",
     "seed:frontdesk": "npx tsx --env-file=.env.local scripts/seed-frontdesk.ts",
     "db:copy-prod-local": "npx tsx --env-file=.env.local scripts/copy-prod-to-local.ts",
+    "db:wipe-except-users": "npx tsx --env-file=.env.local scripts/wipe-db-except-users.ts",
+    "db:verify": "npx tsx --env-file=.env.local scripts/inspect-db.ts",
+    "db:drop-legacy-etg-crm": "npx tsx scripts/drop-legacy-etg-crm-db.ts",
     "db:nuke-razu-nepatronix": "npx tsx --env-file=.env.local scripts/force-remove-razu-nepatronix.ts",
     "db:nuke-razu-nepatronix:execute": "npx tsx --env-file=.env.local scripts/force-remove-razu-nepatronix.ts --execute"
   },

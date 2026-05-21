@@ -1,5 +1,5 @@
 /**
- * Copies all user collections from SOURCE (default: MONGODB_URI) to DESTINATION (default: local etg-crm).
+ * Copies all user collections from SOURCE (default: MONGODB_URI) to DESTINATION (default: local crm).
  * Usage: npx tsx --env-file=.env.local scripts/copy-prod-to-local.ts
  *
  * Skips _pendingUploads and _uploadChunks (stale chunked-upload temp data; not needed for GridFS files).
@@ -28,7 +28,7 @@ async function main() {
     process.env.MONGODB_URI_SOURCE?.trim() || process.env.MONGODB_URI?.trim();
   const destUri =
     process.env.MONGODB_URI_LOCAL?.trim() ||
-    "mongodb://127.0.0.1:27017/etg-crm";
+    "mongodb://127.0.0.1:27017/crm";
 
   if (!sourceUri) {
     console.error("Set MONGODB_URI (e.g. in .env.local) or MONGODB_URI_SOURCE.");

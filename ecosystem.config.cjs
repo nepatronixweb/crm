@@ -1,11 +1,18 @@
 /**
- * PM2 process file for VPS deployment (crm.nepatronix.org → port 3001).
+ * PM2 — CRM only (port 3001, crm.nepatronix.org).
  *
- * On the server:
- *   cp .env.production.example .env.production   # fill secrets
+ * On the VPS this repo should live in its own folder, e.g. /var/www/crm
+ * ETG (port 3000) runs from a separate folder (/var/www/etg) with its own PM2 app.
+ *
+ * First deploy:
+ *   cp .env.production.example .env.production
+ *   bash scripts/setup-vps-mongodb-crm.sh   # creates database "crm"
+ *   npx tsx --env-file=.env.production scripts/reset-admin-password.ts
  *   npm ci && npm run build
- *   pm2 start ecosystem.config.cjs
- *   pm2 save
+ *   pm2 start ecosystem.config.cjs && pm2 save
+ *
+ * Updates:
+ *   bash scripts/deploy-vps-crm.sh
  */
 module.exports = {
   apps: [

@@ -12,7 +12,7 @@ import User from "@/models/User";
 import Branch from "@/models/Branch";
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const ADMIN_EMAIL = "admin@etg.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL?.trim() || "admin@etg.com";
 const plainPassword = process.env.ADMIN_RESET_PASSWORD ?? "Admin@123";
 
 async function main() {
