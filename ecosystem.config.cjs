@@ -14,6 +14,11 @@ if (loaded.error) {
 
 const productionEnv = loaded.parsed || {};
 
+if (!productionEnv.MONGODB_URI) {
+  console.error("[ecosystem] FATAL: MONGODB_URI missing in .env.production");
+  process.exit(1);
+}
+
 module.exports = {
   apps: [
     {

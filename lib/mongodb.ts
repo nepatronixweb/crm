@@ -23,6 +23,15 @@ if (!global.mongoose) {
   global.mongoose = cached;
 }
 
+/** True if URI includes username:password@ (not empty user). */
+export function mongoUriHasCredentials(uri: string): boolean {
+  return /^mongodb(?:\+srv)?:\/\/[^/]+@/i.test(uri);
+}
+
+export function maskMongoUri(uri: string): string {
+  return uri.replace(/\/\/([^@/]+)@/, "//***@");
+}
+
 /** Database name segment from MONGODB_URI (for logs / sanity checks). */
 export function mongoDbNameFromUri(uri: string): string {
   const q = uri.indexOf("?");
@@ -47,23 +56,43 @@ async function connectDB(): Promise<typeof mongoose> {
 
   if (!cached.promise) {
     const db = mongoDbNameFromUri(MONGODB_URI);
+    const hasAuth = mongoUriHasCredentials(MONGODB_URI);
     if (db) {
-      console.info(`[mongodb] connecting to database: ${db}`);
+      console.info(
+        `[mongodb] connecting to database: ${db} (credentials in URI: ${hasAuth ? "yes" : "NO — auth will fail"})`
+      );
+      if (!hasAuth) {
+        console.error(
+          `[mongodb] MONGODB_URI has no username/password (${maskMongoUri(MONGODB_URI)}). ` +
+            `On VPS use the same user as ETG or run: sudo bash scripts/provision-crm-mongodb-from-etg.sh`
+        );
+      }
       if (db === "etg-crm") {
         console.warn(
           "[mongodb] WARNING: MONGODB_URI points to legacy database etg-crm. Use /crm instead (see .env.local)."
         );
       }
     }
-    cached.promise = mongoose.connect(MONGODB_URI, {
-      bufferCommands: false,
-      maxPoolSize: 20,
-      serverSelectionTimeoutMS: 10_000,
-      socketTimeoutMS: 45_000,
-    });
+    cached.promise = mongoose
+      .connect(MONGODB_URI, {
+        bufferCommands: false,
+        maxPoolSize: 20,
+        serverSelectionTimeoutMS: 10_000,
+        socketTimeoutMS: 45_000,
+      })
+      .then(async (m) => {
+        await m.connection.db?.admin().command({ ping: 1 });
+        return m;
+      });
   }
 
-  cached.conn = await cached.promise;
+  try {
+    cached.conn = await cached.promise;
+  } catch (err) {
+    cached.promise = null;
+    console.error("[mongodb] connection failed:", err);
+    throw err;
+  }
   cached.uri = MONGODB_URI;
   return cached.conn;
 }
