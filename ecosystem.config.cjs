@@ -1,19 +1,19 @@
 /**
  * PM2 — CRM only (port 3001, crm.nepatronix.org).
  *
- * On the VPS this repo should live in its own folder, e.g. /var/www/crm
- * ETG (port 3000) runs from a separate folder (/var/www/etg) with its own PM2 app.
- *
- * First deploy:
- *   cp .env.production.example .env.production
- *   bash scripts/setup-vps-mongodb-crm.sh   # creates database "crm"
- *   npx tsx --env-file=.env.production scripts/reset-admin-password.ts
- *   npm ci && npm run build
- *   pm2 start ecosystem.config.cjs && pm2 save
- *
- * Updates:
- *   bash scripts/deploy-vps-crm.sh
+ * Loads .env.production via dotenv so MONGODB_URI is always passed to Next.js.
  */
+const path = require("path");
+const dotenv = require("dotenv");
+
+const prodPath = path.join(__dirname, ".env.production");
+const loaded = dotenv.config({ path: prodPath });
+if (loaded.error) {
+  console.warn("[ecosystem] Warning: could not load .env.production:", loaded.error.message);
+}
+
+const productionEnv = loaded.parsed || {};
+
 module.exports = {
   apps: [
     {
@@ -24,11 +24,11 @@ module.exports = {
       instances: 1,
       autorestart: true,
       max_memory_restart: "800M",
-      env_file: ".env.production",
       env: {
         NODE_ENV: "production",
         PORT: "3001",
         NEXTAUTH_URL: "https://crm.nepatronix.org",
+        ...productionEnv,
       },
     },
   ],
